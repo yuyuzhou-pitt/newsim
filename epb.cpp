@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <iostream>
 #include <sys/personality.h>
+#include <sys/wait.h>
 #include "libsim.h"
 #include "galloc.h"
 #include "log.h"
@@ -89,6 +90,19 @@ void LaunchProcess(uint32_t procIdx, uint32_t shmid) {
 }
 
 
+int eraseChild(int pid) {
+    for (int i = 0; i < 8; i++) {
+        if (childInfo[i].pid == pid) {
+            assert_msg(childInfo[i].status == PS_RUNNING, "i=%d pid=%d status=%d", i, pid, childInfo[i].status);
+            childInfo[i].status = PS_DONE;
+            return i;
+        }
+    }
+    panic("Could not erase child!!");
+}
+
+
+
 int main(int argc, char *argv[])
 {
     GlobSimInfo* zinfo = nullptr;
@@ -107,7 +121,7 @@ int main(int argc, char *argv[])
 
 
 
-/*    while (getNumChildren() > 0) {
+    while (getNumChildren() > 0) {
         if (!gm_isready()) {
             usleep(1000);  // wait till proc idx 0 initializes everyhting
             continue;
@@ -117,7 +131,14 @@ int main(int argc, char *argv[])
             zinfo = static_cast<GlobSimInfo*>(gm_get_glob_ptr());
             printf("%s","Attached to global heap");
         }
-    } */
+        //This solves a weird race in multiprocess where SIGCHLD does not always fire...
+        int cpid = -1;
+        while ((cpid = waitpid(-1, nullptr, WNOHANG)) > 0) {
+            eraseChild(cpid);
+            info("Child %d done (in-loop catch)", cpid);
+        }        
+
+    } 
 
 
 

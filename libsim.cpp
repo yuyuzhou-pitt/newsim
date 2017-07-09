@@ -170,7 +170,7 @@ int main(int argc, char *argv[])
 
     info("Started instance %d", KnobProcIdx.Value());
 
-    /*gm_attach(KnobShmid.Value());
+    gm_attach(KnobShmid.Value());
     //gm_attach();
     //bool masterProcess = false;
     if (procIdx == 0 && !gm_isready()) {  // process 0 can exec() without fork()ing first, so we must check gm_isready() to ensure we don't initialize twice
@@ -179,7 +179,7 @@ int main(int argc, char *argv[])
     } else {
         while (!gm_isready()) usleep(1000);  // wait till proc idx 0 initializes everything
         zinfo = static_cast<GlobSimInfo*>(gm_get_glob_ptr());
-    } */
+    } 
 
 
     pid_t cur = getpid();
