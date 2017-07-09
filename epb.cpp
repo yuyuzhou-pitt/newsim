@@ -1,17 +1,14 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <cassert>
+#include <stdlib.h>
 #include <iostream>
 #include <sys/personality.h>
-
-#include "epb.h"
+#include "libsim.h"
+#include "galloc.h"
+#include "log.h"
 
 using namespace std;
-
-#define PIN  "/home/yuyuzhou/epb/pin/pin-2.10-45467-gcc.3.4.6-ia32_intel64-linux/pin"
-#define ARGS "-t obj-intel64/libsim.so -- ls"
-#define numProcs 8
 
 typedef enum {
     PS_INVALID,
@@ -27,15 +24,31 @@ struct ProcInfo {
 ProcInfo childInfo[numProcs];
 bool aslr = false;
 
+int getNumChildren() {
+    int num = 0;
+    for (int i = 0; i < 8; i++) {
+        if (childInfo[i].status == PS_RUNNING) num++;
+    }
+    return num;
+}
 
-void LaunchProcess(uint32_t procIdx) {
+void LaunchProcess(uint32_t procIdx, uint32_t shmid) {
+    char buffer1[10];
+    char buffer2[10];
+
     const char *aptrs[10];
     aptrs[0]=PIN;
     aptrs[1]="-t";
     aptrs[2]="obj-intel64/libsim.so";
-    aptrs[3]="--";
-    aptrs[4]="ls";
-    aptrs[5]=nullptr;
+    aptrs[3]="-procIdx";
+    snprintf(buffer1, sizeof(buffer1), "%d", procIdx);
+    aptrs[4]=buffer1;
+    aptrs[5]="-shmid";
+    snprintf(buffer2, sizeof(buffer2), "%d", shmid);
+    aptrs[6]=buffer2;
+    aptrs[7]="--";
+    aptrs[8]=COMMAND;
+    aptrs[9]=nullptr;
 
     int cpid = fork();
     if (cpid) { //parent
@@ -78,9 +91,63 @@ void LaunchProcess(uint32_t procIdx) {
 
 int main(int argc, char *argv[])
 {
+    GlobSimInfo* zinfo = nullptr;
+
+    uint32_t gmSize = 1; /*default 1MB*/
+    info("Creating global segment, %d MBs", gmSize);
+    int shmid = gm_init(((size_t)gmSize) << 20 /*MB to Bytes*/);
+    info("Global segment shmid = %d", shmid);
+
+    //sleep(180);
+
+
     for (uint32_t procIdx = 0; procIdx < numProcs; procIdx++) {
-        LaunchProcess(procIdx);
-    }
+        LaunchProcess(procIdx, shmid);
+    }  
+
+
+
+/*    while (getNumChildren() > 0) {
+        if (!gm_isready()) {
+            usleep(1000);  // wait till proc idx 0 initializes everyhting
+            continue;
+        }
+
+        if (zinfo == nullptr) {
+            zinfo = static_cast<GlobSimInfo*>(gm_get_glob_ptr());
+            printf("%s","Attached to global heap");
+        }
+    } */
+
+
+
  
    return 0;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

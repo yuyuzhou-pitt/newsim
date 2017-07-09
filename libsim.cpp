@@ -33,16 +33,49 @@ END_LEGAL */
  */
 
 #include <sys/types.h>
+#include <sys/prctl.h>
 #include <unistd.h>
 #include <stdio.h>
 #include "pin.H"
 #include <chrono>
 #include <numeric>
+#include <sstream>
+#include "galloc.h"
+#include "libsim.h"
+#include "log.h"
+
+KNOB<INT32> KnobProcIdx(KNOB_MODE_WRITEONCE, "pintool",
+        "procIdx", "0", "zsim process idx (internal)");
+
+KNOB<INT32> KnobShmid(KNOB_MODE_WRITEONCE, "pintool",
+        "shmid", "0", "SysV IPC shared memory id used when running in multi-process mode");
+
+
+/* Global Variables */
+
+GlobSimInfo* zinfo;
+
+/* Per-process variables */
+uint32_t procIdx;
+
+
+
 
 
 
 FILE * trace;
 std::chrono::high_resolution_clock::time_point start;
+
+void SimInit(uint32_t shmid){
+    zinfo = gm_calloc<GlobSimInfo>();
+    for (uint32_t i = 0; i < 8; i++) zinfo->cycles[i]=0;    
+    gm_set_glob_ptr(zinfo);
+
+}
+
+
+
+
 
 // Print a memory read record
 VOID RecordMemRead(VOID * ip, VOID * addr)
@@ -121,7 +154,33 @@ INT32 Usage()
 int main(int argc, char *argv[])
 {
     start = std::chrono::high_resolution_clock::now();
+    PIN_InitSymbols();
     if (PIN_Init(argc, argv)) return Usage();
+
+    procIdx = KnobProcIdx.Value();
+    char header[64];
+    snprintf(header, sizeof(header), "[S %d] ", procIdx);
+    std::stringstream logfile_ss;
+    logfile_ss << "./libsim.log." << procIdx;
+    InitLog(header, logfile_ss.str().c_str());
+
+    if (prctl(PR_SET_PDEATHSIG, 9 /*SIGKILL*/) != 0) {
+        panic("prctl() failed");
+    }
+
+    info("Started instance %d", KnobProcIdx.Value());
+
+    /*gm_attach(KnobShmid.Value());
+    //gm_attach();
+    //bool masterProcess = false;
+    if (procIdx == 0 && !gm_isready()) {  // process 0 can exec() without fork()ing first, so we must check gm_isready() to ensure we don't initialize twice
+        //masterProcess = true;
+        SimInit(KnobShmid.Value());
+    } else {
+        while (!gm_isready()) usleep(1000);  // wait till proc idx 0 initializes everything
+        zinfo = static_cast<GlobSimInfo*>(gm_get_glob_ptr());
+    } */
+
 
     pid_t cur = getpid();
     char pid_s[15];
