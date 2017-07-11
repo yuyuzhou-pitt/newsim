@@ -68,9 +68,13 @@ std::chrono::high_resolution_clock::time_point start;
 
 void SimInit(uint32_t shmid){
     zinfo = gm_calloc<GlobSimInfo>();
-    for (uint32_t i = 0; i < 8; i++) zinfo->cycles[i]=0;    
+    for (uint32_t i = 0; i < 8; i++) {
+        zinfo->cycles[i]=0;
+        zinfo->FastForwardIns[i]=0;
+    }    
+    zinfo->phaseLength = PHASE_LENGTH;
+    zinfo->FastForward = FASTFORWARD;
     gm_set_glob_ptr(zinfo);
-
 }
 
 
@@ -78,21 +82,40 @@ void SimInit(uint32_t shmid){
 
 
 // Print a memory read record
-VOID RecordMemRead(VOID * ip, VOID * addr)
+VOID RecordMemRead(VOID * ip, VOID * addr, uint32_t id)
 {
+
     auto ttp = std::chrono::system_clock::now();
     std::chrono::duration<double> diff = ttp-start;
-//    fprintf(trace,"%lf %p: R %p\n", diff.count(), ip, addr);
+      fprintf(trace,"%lf %p: R %p\n", diff.count(), ip, addr);
+//      info("AF %d", zinfo->FastForwardIns[id]);
+   
     fprintf(trace,"%lf : R %p\n", diff.count(), addr);
 }
 
 // Print a memory write record
-VOID RecordMemWrite(VOID * ip, VOID * addr)
+VOID RecordMemWrite(VOID * ip, VOID * addr, uint32_t id)
 {
-    auto ttp = std::chrono::system_clock::now();
-    std::chrono::duration<double> diff = ttp-start;
-    fprintf(trace,"%lf : W %p\n", diff.count(), addr);
+        auto ttp = std::chrono::system_clock::now();
+        std::chrono::duration<double> diff = ttp-start;
+//        info("AF %d", zinfo->FastForwardIns[id]);
+        fprintf(trace,"%lf : W %p\n", diff.count(), addr);
 }
+
+
+VOID fastForward(uint32_t id){
+    if ( (zinfo->FastForward == true) && (zinfo->FastForwardIns[id] < FF_INS) ) {
+        zinfo->FastForwardIns[id]++;
+    //    info("id %d: FF %d", id, zinfo->FastForwardIns[id]);
+        PIN_RemoveInstrumentation();
+    } 
+    if ( (zinfo->FastForward == true) && (zinfo->FastForwardIns[id] >= FF_INS) ) {
+        zinfo->FastForwardIns[id]++;
+    //    info("id %d: AF %d", id, zinfo->FastForwardIns[id]);
+    } 
+}
+
+
 
 // Is called for every instruction and instruments reads and writes
 VOID Instruction(INS ins, VOID *v)
@@ -103,7 +126,13 @@ VOID Instruction(INS ins, VOID *v)
     // The IA-64 architecture has explicitly predicated instructions. 
     // On the IA-32 and Intel(R) 64 architectures conditional moves and REP 
     // prefixed instructions appear as predicated instructions in Pin.
-    UINT32 memOperands = INS_MemoryOperandCount(ins);
+    // 
+
+    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)fastForward,IARG_UINT32,  procIdx, IARG_END);
+
+    if ( (zinfo->FastForward == true) && (zinfo->FastForwardIns[procIdx] >= FF_INS) ) {  // no longer in fast forwarding
+
+        UINT32 memOperands = INS_MemoryOperandCount(ins);
 
     // Iterate over each memory operand of the instruction.
     for (UINT32 memOp = 0; memOp < memOperands; memOp++)
@@ -114,6 +143,7 @@ VOID Instruction(INS ins, VOID *v)
                 ins, IPOINT_BEFORE, (AFUNPTR)RecordMemRead,
                 IARG_INST_PTR,
                 IARG_MEMORYOP_EA, memOp,
+                IARG_UINT32, procIdx,
                 IARG_END);
         }
         // Note that in some architectures a single memory operand can be 
@@ -125,8 +155,10 @@ VOID Instruction(INS ins, VOID *v)
                 ins, IPOINT_BEFORE, (AFUNPTR)RecordMemWrite,
                 IARG_INST_PTR,
                 IARG_MEMORYOP_EA, memOp,
+                IARG_UINT32,  procIdx,
                 IARG_END);
         }
+    }
     }
 }
 
@@ -171,6 +203,7 @@ int main(int argc, char *argv[])
     info("Started instance %d", KnobProcIdx.Value());
 
     gm_attach(KnobShmid.Value());
+
     //gm_attach();
     //bool masterProcess = false;
     if (procIdx == 0 && !gm_isready()) {  // process 0 can exec() without fork()ing first, so we must check gm_isready() to ensure we don't initialize twice
@@ -179,6 +212,8 @@ int main(int argc, char *argv[])
     } else {
         while (!gm_isready()) usleep(1000);  // wait till proc idx 0 initializes everything
         zinfo = static_cast<GlobSimInfo*>(gm_get_glob_ptr());
+        info("PHASE_LENGTH %d", zinfo->phaseLength);
+        info("Core %d, inst %lu", procIdx, zinfo->core[procIdx].getInstrs());
     } 
 
 
