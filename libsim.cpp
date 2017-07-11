@@ -85,34 +85,38 @@ void SimInit(uint32_t shmid){
 VOID RecordMemRead(VOID * ip, VOID * addr, uint32_t id)
 {
 
-    auto ttp = std::chrono::system_clock::now();
-    std::chrono::duration<double> diff = ttp-start;
-      fprintf(trace,"%lf %p: R %p\n", diff.count(), ip, addr);
-//      info("AF %d", zinfo->FastForwardIns[id]);
-   
-    fprintf(trace,"%lf : R %p\n", diff.count(), addr);
+    if ( (zinfo->FastForward == false) || (zinfo->FastForwardIns[procIdx] >= FF_INS) ) {  // no longer in fast forwarding
+        auto ttp = std::chrono::system_clock::now();
+        std::chrono::duration<double> diff = ttp-start;
+        fprintf(trace,"%lf %p: R %p\n", diff.count(), ip, addr);
+        info("AF %d", zinfo->FastForwardIns[id]);
+        fprintf(trace,"%lf : R %p\n", diff.count(), addr);
+    }
 }
 
 // Print a memory write record
 VOID RecordMemWrite(VOID * ip, VOID * addr, uint32_t id)
 {
+    if ( (zinfo->FastForward == false) || (zinfo->FastForwardIns[procIdx] >= FF_INS) ) {  // no longer in fast forwarding
         auto ttp = std::chrono::system_clock::now();
         std::chrono::duration<double> diff = ttp-start;
-//        info("AF %d", zinfo->FastForwardIns[id]);
+        info("AF %d", zinfo->FastForwardIns[id]);
         fprintf(trace,"%lf : W %p\n", diff.count(), addr);
+    }
 }
 
 
 VOID fastForward(uint32_t id){
+    zinfo->FastForwardIns[id]++;
+    zinfo->cycles[id]++;
     if ( (zinfo->FastForward == true) && (zinfo->FastForwardIns[id] < FF_INS) ) {
-        zinfo->FastForwardIns[id]++;
     //    info("id %d: FF %d", id, zinfo->FastForwardIns[id]);
         PIN_RemoveInstrumentation();
     } 
-    if ( (zinfo->FastForward == true) && (zinfo->FastForwardIns[id] >= FF_INS) ) {
-        zinfo->FastForwardIns[id]++;
+    //if ( (zinfo->FastForward == true) && (zinfo->FastForwardIns[id] >= FF_INS) ) {
+    //    zinfo->FastForwardIns[id]++;
     //    info("id %d: AF %d", id, zinfo->FastForwardIns[id]);
-    } 
+    //} 
 }
 
 
@@ -130,9 +134,8 @@ VOID Instruction(INS ins, VOID *v)
 
     INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)fastForward,IARG_UINT32,  procIdx, IARG_END);
 
-    if ( (zinfo->FastForward == true) && (zinfo->FastForwardIns[procIdx] >= FF_INS) ) {  // no longer in fast forwarding
 
-        UINT32 memOperands = INS_MemoryOperandCount(ins);
+    UINT32 memOperands = INS_MemoryOperandCount(ins);
 
     // Iterate over each memory operand of the instruction.
     for (UINT32 memOp = 0; memOp < memOperands; memOp++)
@@ -158,7 +161,6 @@ VOID Instruction(INS ins, VOID *v)
                 IARG_UINT32,  procIdx,
                 IARG_END);
         }
-    }
     }
 }
 
