@@ -7,7 +7,7 @@
 #define FASTFORWARD true
 #define FF_INS 10000
 
-#define PHASE_LENGTH 10000;
+#define PHASE_LENGTH 10000
 
 #define PIN  "/home/yuyuzhou/epb/pin/pin-2.10-45467-gcc.3.4.6-ia32_intel64-linux/pin"
 #define ARGS "-t obj-intel64/libsim.so -- ls"
@@ -60,6 +60,8 @@ struct GlobSimInfo {
     uint32_t FastForwardIns[8]; 
     uint32_t phaseLength;
     bool FastForward;
+    uint32_t phase[8];
+    uint32_t global_phase;
     SimpleCore core[8];
 };
 

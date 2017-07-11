@@ -71,14 +71,13 @@ void SimInit(uint32_t shmid){
     for (uint32_t i = 0; i < 8; i++) {
         zinfo->cycles[i]=0;
         zinfo->FastForwardIns[i]=0;
-    }    
+        zinfo->phase[i]=0;
+    } 
+    zinfo->global_phase = 0;    
     zinfo->phaseLength = PHASE_LENGTH;
     zinfo->FastForward = FASTFORWARD;
     gm_set_glob_ptr(zinfo);
 }
-
-
-
 
 
 // Print a memory read record
@@ -105,14 +104,40 @@ VOID RecordMemWrite(VOID * ip, VOID * addr, uint32_t id)
     }
 }
 
+VOID UpdateGlobalPhase(){
+    int i;
+    for (i=1;i<numProcs;i++) {
+       if (zinfo->phase[i]!=zinfo->phase[0]) return; 
+    }
+    zinfo->global_phase = zinfo->phase[0];
+}
+
+
+VOID weave(uint32_t id){
+    while (zinfo->phase[id] > zinfo->global_phase) {
+         UpdateGlobalPhase();
+         usleep(100);
+    }
+    //weave work
+    //
+    //
+    printf("[core %d]Enter Bound %d\n", id, zinfo->global_phase); 
+}
+
 
 VOID fastForward(uint32_t id){
     zinfo->FastForwardIns[id]++;
-    zinfo->cycles[id]++;
     if ( (zinfo->FastForward == true) && (zinfo->FastForwardIns[id] < FF_INS) ) {
     //    info("id %d: FF %d", id, zinfo->FastForwardIns[id]);
         PIN_RemoveInstrumentation();
     } 
+    else {
+        zinfo->cycles[id]++;
+        if (zinfo->cycles[id]/PHASE_LENGTH > zinfo->phase[id]) {
+            zinfo->phase[id]++; //Previous phase end; 
+            weave(id); 
+        }
+    }
     //if ( (zinfo->FastForward == true) && (zinfo->FastForwardIns[id] >= FF_INS) ) {
     //    zinfo->FastForwardIns[id]++;
     //    info("id %d: AF %d", id, zinfo->FastForwardIns[id]);
