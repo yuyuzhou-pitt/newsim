@@ -37,7 +37,24 @@ uint64_t flush(uint32_t procId, uint64_t PersistTrax){
         } 
     }
 
-    return 0;
+    return cycles;
+}
+
+uint64_t overflow_flush(uint32_t procId, uint64_t PersistTrax){
+    int i;
+    uint64_t cycles = 0;
+    for (i = 0; i < PB_SIZE; i++) {
+        if (zinfo->pb[procId][i].tx_id <= PersistTrax) {
+              // flush NVM
+                 cycles = cycles + 1 + 2*NVM_WRITE_LATENCY;
+                 zinfo->pb[procId][i].tx_id = -1;
+                 zinfo->pb[procId][i].level = NONE;
+                 zinfo->pb[procId][i].lineId = -1;
+                 zinfo->pb[procId][i].lineAddr = -1;
+             
+        }
+    }
+    return cycles;
 }
 
 
@@ -54,15 +71,14 @@ uint64_t insert_PB(uint32_t procId, uint64_t buffer_lineID, uint64_t epoch_id, C
 
     if ((zinfo->pb[procId][buffer_lineID].tx_id != epoch_id) && (zinfo->pb[procId][buffer_lineID].tx_id != (uint64_t)(-1) )) { //buffer is full
         info("Error buffeer is full, buffer_id %lu, epoch_id %lu, nexPer %lu", buffer_lineID, epoch_id, zinfo->nextPersistTrax[procId]);
+        overflow_flush(procId, epoch_id);
     }
-    else {
        if (zinfo->pb[procId][buffer_lineID].tx_id != epoch_id) // a new entry
            zinfo->nextAvailablePBLine[procId] = (zinfo->nextAvailablePBLine[procId] + 1) % PB_SIZE; 
        zinfo->pb[procId][buffer_lineID].tx_id = epoch_id;
        zinfo->pb[procId][buffer_lineID].level = cl;
        zinfo->pb[procId][buffer_lineID].lineId = lineID;        
        zinfo->pb[procId][buffer_lineID].lineAddr = lineAddr;
-    }
     return 1; 
 }
 
