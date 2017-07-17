@@ -1,4 +1,7 @@
 /* This the epb's configure */
+#ifndef LIBSIM_H_
+#define LIBSIM_H_
+
 
 #include <stdint.h>
 #include "galloc.h"
@@ -121,13 +124,13 @@ struct L1Cache{
 };
 
 
-int32_t l1_lookup(uint32_t procId, Address lineAddr);
-Address l1_reverse_lookup(uint32_t procId, const int32_t lineID);
-uint64_t l1_access(uint32_t procId, MemReq req);
-uint64_t l1_evict(uint32_t procId, MemReq req, const int32_t lineID);
-uint32_t l1_preinsert(uint32_t procId, MemReq req);
-void l1_postinsert(uint32_t procId, MemReq req, int32_t lineID);
-uint64_t l1_fetch(uint32_t procId, MemReq req); 
+int32_t (*l1_lookup) (uint32_t procId, Address lineAddr);
+Address (*l1_reverse_lookup) (uint32_t procId, const int32_t lineID);
+uint64_t (*l1_access) (uint32_t procId, MemReq req);
+uint64_t (*l1_evict) (uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t (*l1_preinsert) (uint32_t procId, MemReq req);
+void (*l1_postinsert) (uint32_t procId, MemReq req, int32_t lineID);
+uint64_t (*l1_fetch) (uint32_t procId, MemReq req); 
 
 
 
@@ -139,13 +142,13 @@ struct L2Cache{
         uint32_t numSets;
 };
 
-int32_t l2_lookup(uint32_t procId, Address lineAddr);
-Address l2_reverse_lookup(uint32_t procId, const int32_t lineID);
-uint64_t l2_access(uint32_t procId, MemReq req);
-uint64_t l2_evict(uint32_t procId, MemReq req, const int32_t lineID);
-uint32_t l2_preinsert(uint32_t procId, MemReq req);
-void l2_postinsert(uint32_t procId, MemReq req, int32_t lineID);
-uint64_t l2_fetch(uint32_t procId, MemReq req); 
+int32_t (*l2_lookup) (uint32_t procId, Address lineAddr);
+Address (*l2_reverse_lookup) (uint32_t procId, const int32_t lineID);
+uint64_t (*l2_access) (uint32_t procId, MemReq req);
+uint64_t (*l2_evict) (uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t (*l2_preinsert) (uint32_t procId, MemReq req);
+void (*l2_postinsert)(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t (*l2_fetch) (uint32_t procId, MemReq req); 
 
 
 struct NVCCache{
@@ -157,13 +160,13 @@ struct NVCCache{
         uint32_t numSets;
 };
 
-int32_t nvc_lookup(uint32_t procId, Address lineAddr);
-Address nvc_reverse_lookup(uint32_t procId, const int32_t lineID);
-uint64_t nvc_access(uint32_t procId, MemReq req);
-uint64_t nvc_evict(uint32_t procId, MemReq req, const int32_t lineID);
-uint32_t nvc_preinsert(uint32_t procId, MemReq req);
-void nvc_postinsert(uint32_t procId, MemReq req, int32_t lineID);
-uint64_t nvc_fetch( uint32_t procId, MemReq req); 
+int32_t (*nvc_lookup) (uint32_t procId, Address lineAddr);
+Address (*nvc_reverse_lookup) (uint32_t procId, const int32_t lineID);
+uint64_t (*nvc_access) (uint32_t procId, MemReq req);
+uint64_t (*nvc_evict) (uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t (*nvc_preinsert) (uint32_t procId, MemReq req);
+void (*nvc_postinsert) (uint32_t procId, MemReq req, int32_t lineID);
+uint64_t (*nvc_fetch) ( uint32_t procId, MemReq req); 
 
 struct DRAM {
         uint32_t accLat; //latency of a normal access, split in get/put
@@ -173,13 +176,13 @@ struct DRAM {
         uint32_t numSets;
 };
 
-int32_t dram_lookup(uint32_t procId, Address lineAddr);
-Address dram_reverse_lookup(uint32_t procId, const int32_t lineID);
-uint64_t dram_access(uint32_t procId, MemReq req);
-uint64_t dram_evict(uint32_t procId, MemReq req, const int32_t lineID);
-uint32_t dram_preinsert(uint32_t procId, MemReq req);
-void dram_postinsert(uint32_t procId, MemReq req, int32_t lineID);
-uint64_t dram_fetch(uint32_t procId, MemReq req); 
+int32_t (*dram_lookup) (uint32_t procId, Address lineAddr);
+Address (*dram_reverse_lookup) (uint32_t procId, const int32_t lineID);
+uint64_t (*dram_access) (uint32_t procId, MemReq req);
+uint64_t (*dram_evict) (uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t (*dram_preinsert) (uint32_t procId, MemReq req);
+void (*dram_postinsert) (uint32_t procId, MemReq req, int32_t lineID);
+uint64_t (*dram_fetch) (uint32_t procId, MemReq req); 
 
 
 struct NVRAM{
@@ -187,7 +190,7 @@ struct NVRAM{
         uint32_t write_accLat;
 };
 
-uint64_t nvm_access(uint32_t procId, MemReq req);
+uint64_t (*nvm_access) (uint32_t procId, MemReq req);
 
 struct PerformanceCounters{
       uint64_t l1_hGETS[8]; // L1 GETS hits
@@ -228,6 +231,168 @@ struct PerformanceCounters{
 void atomic_add_timestamp();
 
 
+// NATIVE
+int32_t native_l1_lookup(uint32_t procId, Address lineAddr);
+Address native_l1_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t native_l1_access(uint32_t procId, MemReq req);
+uint64_t native_l1_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t native_l1_preinsert(uint32_t procId, MemReq req);
+void native_l1_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t native_l1_fetch(uint32_t procId, MemReq req);
+int32_t native_l2_lookup(uint32_t procId, Address lineAddr);
+Address native_l2_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t native_l2_access(uint32_t procId, MemReq req);
+uint64_t native_l2_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t native_l2_preinsert(uint32_t procId, MemReq req);
+void native_l2_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t native_l2_fetch(uint32_t procId, MemReq req);
+int32_t native_nvc_lookup(uint32_t procId, Address lineAddr);
+Address native_nvc_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t native_nvc_access(uint32_t procId, MemReq req);
+uint64_t native_nvc_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t native_nvc_preinsert(uint32_t procId, MemReq req);
+void native_nvc_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t native_nvc_fetch( uint32_t procId, MemReq req);
+int32_t native_dram_lookup(uint32_t procId, Address lineAddr);
+Address native_dram_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t native_dram_access(uint32_t procId, MemReq req);
+uint64_t native_dram_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t native_dram_preinsert(uint32_t procId, MemReq req);
+void native_dram_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t native_dram_fetch(uint32_t procId, MemReq req);
+uint64_t native_nvm_access(uint32_t procId, MemReq req);
+
+// NVMLOG
+int32_t nvmlog_l1_lookup(uint32_t procId, Address lineAddr);
+Address nvmlog_l1_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t nvmlog_l1_access(uint32_t procId, MemReq req);
+uint64_t nvmlog_l1_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t nvmlog_l1_preinsert(uint32_t procId, MemReq req);
+void nvmlog_l1_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t nvmlog_l1_fetch(uint32_t procId, MemReq req);
+int32_t nvmlog_l2_lookup(uint32_t procId, Address lineAddr);
+Address nvmlog_l2_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t nvmlog_l2_access(uint32_t procId, MemReq req);
+uint64_t nvmlog_l2_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t nvmlog_l2_preinsert(uint32_t procId, MemReq req);
+void nvmlog_l2_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t nvmlog_l2_fetch(uint32_t procId, MemReq req);
+int32_t nvmlog_nvc_lookup(uint32_t procId, Address lineAddr);
+Address nvmlog_nvc_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t nvmlog_nvc_access(uint32_t procId, MemReq req);
+uint64_t nvmlog_nvc_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t nvmlog_nvc_preinsert(uint32_t procId, MemReq req);
+void nvmlog_nvc_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t nvmlog_nvc_fetch( uint32_t procId, MemReq req);
+int32_t nvmlog_dram_lookup(uint32_t procId, Address lineAddr);
+Address nvmlog_dram_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t nvmlog_dram_access(uint32_t procId, MemReq req);
+uint64_t nvmlog_dram_evict(uint32_t procId, MemReq req, const int32_t lineID)
+;
+uint32_t nvmlog_dram_preinsert(uint32_t procId, MemReq req);
+void nvmlog_dram_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t nvmlog_dram_fetch(uint32_t procId, MemReq req);
+uint64_t nvmlog_nvm_access(uint32_t procId, MemReq req);
+
+//KILN
+int32_t kiln_l1_lookup(uint32_t procId, Address lineAddr);
+Address kiln_l1_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t kiln_l1_access(uint32_t procId, MemReq req);
+uint64_t kiln_l1_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t kiln_l1_preinsert(uint32_t procId, MemReq req);
+void kiln_l1_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t kiln_l1_fetch(uint32_t procId, MemReq req);
+int32_t kiln_l2_lookup(uint32_t procId, Address lineAddr);
+Address kiln_l2_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t kiln_l2_access(uint32_t procId, MemReq req);
+uint64_t kiln_l2_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t kiln_l2_preinsert(uint32_t procId, MemReq req);
+void kiln_l2_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t kiln_l2_fetch(uint32_t procId, MemReq req);
+int32_t kiln_nvc_lookup(uint32_t procId, Address lineAddr);
+Address kiln_nvc_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t kiln_nvc_access(uint32_t procId, MemReq req);
+uint64_t kiln_nvc_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t kiln_nvc_preinsert(uint32_t procId, MemReq req);
+void kiln_nvc_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t kiln_nvc_fetch( uint32_t procId, MemReq req);
+int32_t kiln_dram_lookup(uint32_t procId, Address lineAddr);
+Address kiln_dram_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t kiln_dram_access(uint32_t procId, MemReq req);
+uint64_t kiln_dram_evict(uint32_t procId, MemReq req, const int32_t lineID)
+;
+uint32_t kiln_dram_preinsert(uint32_t procId, MemReq req);
+void kiln_dram_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t kiln_dram_fetch(uint32_t procId, MemReq req);
+uint64_t kiln_nvm_access(uint32_t procId, MemReq req);
+
+
+//EPB
+int32_t epb_l1_lookup(uint32_t procId, Address lineAddr);
+Address epb_l1_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t epb_l1_access(uint32_t procId, MemReq req);
+uint64_t epb_l1_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t epb_l1_preinsert(uint32_t procId, MemReq req);
+void epb_l1_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t epb_l1_fetch(uint32_t procId, MemReq req);
+int32_t epb_l2_lookup(uint32_t procId, Address lineAddr);
+Address epb_l2_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t epb_l2_access(uint32_t procId, MemReq req);
+uint64_t epb_l2_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t epb_l2_preinsert(uint32_t procId, MemReq req);
+void epb_l2_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t epb_l2_fetch(uint32_t procId, MemReq req);
+int32_t epb_nvc_lookup(uint32_t procId, Address lineAddr);
+Address epb_nvc_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t epb_nvc_access(uint32_t procId, MemReq req);
+uint64_t epb_nvc_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t epb_nvc_preinsert(uint32_t procId, MemReq req);
+void epb_nvc_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t epb_nvc_fetch( uint32_t procId, MemReq req);
+int32_t epb_dram_lookup(uint32_t procId, Address lineAddr);
+Address epb_dram_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t epb_dram_access(uint32_t procId, MemReq req);
+uint64_t epb_dram_evict(uint32_t procId, MemReq req, const int32_t lineID)
+;
+uint32_t epb_dram_preinsert(uint32_t procId, MemReq req);
+void epb_dram_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t epb_dram_fetch(uint32_t procId, MemReq req);
+uint64_t epb_nvm_access(uint32_t procId, MemReq req);
+
+
+//EPB_BF
+int32_t epb_bf_l1_lookup(uint32_t procId, Address lineAddr);
+Address epb_bf_l1_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t epb_bf_l1_access(uint32_t procId, MemReq req);
+uint64_t epb_bf_l1_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t epb_bf_l1_preinsert(uint32_t procId, MemReq req);
+void epb_bf_l1_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t epb_bf_l1_fetch(uint32_t procId, MemReq req);
+int32_t epb_bf_l2_lookup(uint32_t procId, Address lineAddr);
+Address epb_bf_l2_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t epb_bf_l2_access(uint32_t procId, MemReq req);
+uint64_t epb_bf_l2_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t epb_bf_l2_preinsert(uint32_t procId, MemReq req);
+void epb_bf_l2_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t epb_bf_l2_fetch(uint32_t procId, MemReq req);
+int32_t epb_bf_nvc_lookup(uint32_t procId, Address lineAddr);
+Address epb_bf_nvc_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t epb_bf_nvc_access(uint32_t procId, MemReq req);
+uint64_t epb_bf_nvc_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t epb_bf_nvc_preinsert(uint32_t procId, MemReq req);
+void epb_bf_nvc_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t epb_bf_nvc_fetch( uint32_t procId, MemReq req);
+int32_t epb_bf_dram_lookup(uint32_t procId, Address lineAddr);
+Address epb_bf_dram_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t epb_bf_dram_access(uint32_t procId, MemReq req);
+uint64_t epb_bf_dram_evict(uint32_t procId, MemReq req, const int32_t lineID)
+;
+uint32_t epb_bf_dram_preinsert(uint32_t procId, MemReq req);
+void epb_bf_dram_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t epb_bf_dram_fetch(uint32_t procId, MemReq req);
+uint64_t epb_bf_nvm_access(uint32_t procId, MemReq req);
+
+
 struct GlobSimInfo {
     Arch arch; 
     lock_t lock; 
@@ -250,4 +415,7 @@ struct GlobSimInfo {
     PerformanceCounters pc; 
 };
 
-extern GlobSimInfo* zinfo;
+//extern GlobSimInfo* zinfo;
+
+GlobSimInfo* zinfo;
+#endif // LIBSIM_H_

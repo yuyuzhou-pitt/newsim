@@ -129,7 +129,7 @@ int main(int argc, char *argv[])
 
         if (zinfo == nullptr) {
             zinfo = static_cast<GlobSimInfo*>(gm_get_glob_ptr());
-            printf("%s","Attached to global heap");
+            printf("%s","Attached to global heap\n");
         }
         //This solves a weird race in multiprocess where SIGCHLD does not always fire...
         int cpid = -1;
