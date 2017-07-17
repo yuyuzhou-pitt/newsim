@@ -7,7 +7,7 @@
 #include "galloc.h"
 #include "locks.h"
 
-#define ARCHITECTURE EPB
+#define ARCHITECTURE NVMLOG
 #define COMMAND "./test/a.out"
 #define FASTFORWARD true
 #define FF_INS 1
@@ -17,6 +17,8 @@
 #define PIN  "/home/yuyuzhou/epb/pin/pin-2.10-45467-gcc.3.4.6-ia32_intel64-linux/pin"
 #define ARGS "-t obj-intel64/libsim.so -- ./test/a.out"
 #define numProcs 1
+
+#define PB_SIZE 10 //persistent buffer size
 
 #define L1D_SIZE 512   // make then extra small to help debuggin
 //#define L1D_SIZE 32768   //32KB
@@ -89,6 +91,15 @@ typedef enum {
     M  // exclusive and dirty
 } MESIState;
 
+typedef enum{
+    CL1,
+    CL2,
+    CL3,
+    CL4,
+    NONE
+} CacheLevel;
+
+
 inline bool IsGet(AccessType t) { return t == GETS || t == GETX; }
 inline bool IsPut(AccessType t) { return t == PUTS || t == PUTX; }
 
@@ -114,6 +125,7 @@ struct L1Cache{
         Address array[L1D_SIZE/64];
         MESIState state[L1D_SIZE/64];
         uint64_t ts[L1D_SIZE/64]; //timestamp for LRU
+        uint32_t pb_line[L1D_SIZE/64]; // which line in pb it locates
         uint32_t numSets;
 
    /*     L1Cache(uint32_t _accLat, uint32_t numSets);
@@ -140,6 +152,7 @@ struct L2Cache{
         Address array[L2_SIZE/64];
         MESIState state[L2_SIZE/64];
         uint64_t ts[L2_SIZE/64]; //timestamp for LRU
+        uint32_t pb_line[L2_SIZE/64]; // which line in pb it locates
         uint32_t numSets;
 };
 
@@ -153,10 +166,12 @@ uint64_t (*l2_fetch) (uint32_t procId, MemReq req);
 
 
 struct NVCCache{
+        uint32_t procId; //process Id
         uint32_t read_accLat; //latency of a normal access, split in get/put
         uint32_t write_accLat;
         Address array[NVC_SIZE/64];
         MESIState state[NVC_SIZE/64];
+        uint32_t pb_line[NVC_SIZE/64]; // which line in pb it locates
         uint64_t ts[NVC_SIZE/64]; //timestamp for LRU
         uint32_t numSets;
 };
@@ -170,9 +185,11 @@ void (*nvc_postinsert) (uint32_t procId, MemReq req, int32_t lineID);
 uint64_t (*nvc_fetch) ( uint32_t procId, MemReq req); 
 
 struct DRAM {
+        uint32_t procId; //processId
         uint32_t accLat; //latency of a normal access, split in get/put
         Address array[DRAM_SIZE/64];
         MESIState state[DRAM_SIZE/64];
+        uint32_t pb_line[DRAM_SIZE/64]; // which line in pb it locates
         uint64_t ts[DRAM_SIZE/64]; //timestamp for LRU
         uint32_t numSets;
 };
@@ -192,6 +209,13 @@ struct NVRAM{
 };
 
 uint64_t (*nvm_access) (uint32_t procId, MemReq req);
+
+struct PersistBuffer{  // buffer per core
+    uint64_t tx_id; //tranctation id
+    CacheLevel level; // which level cache
+    uint32_t lineId; // lineId
+};
+
 
 struct PerformanceCounters{
       uint64_t l1_hGETS[8]; // L1 GETS hits
@@ -416,6 +440,9 @@ struct GlobSimInfo {
     PerformanceCounters pc; 
     bool persistent[8];
     uint64_t tx_id[8];
+    PersistBuffer pb[8][PB_SIZE]; 
+    uint64_t nextPersistTrax[8];
+    uint32_t nextAvailablePBLine[8];
 };
 
 //extern GlobSimInfo* zinfo;

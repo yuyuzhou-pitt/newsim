@@ -88,6 +88,15 @@ void SimInit(uint32_t shmid){
         zinfo->core[i].lastUpdateInstrs = 0;
         zinfo->persistent[i]=false;
         zinfo->tx_id[i] = 0;
+        zinfo->nextPersistTrax[i]=0;
+        zinfo->nextAvailablePBLine[i]=0;
+
+// initial persistent buffer
+        for (uint32_t j =0; j < PB_SIZE; j++) { 
+            zinfo->pb[i][j].tx_id = -1;
+            zinfo->pb[i][j].level = NONE;
+            zinfo->pb[i][j].lineId = -1;      
+        }
 
 // initialize L1 cache
         zinfo->l1cache[i].accLat = L1D_LATENCY;
@@ -96,6 +105,7 @@ void SimInit(uint32_t shmid){
             zinfo->l1cache[i].array[j]=0;
             zinfo->l1cache[i].state[j]=I;
             zinfo->l1cache[i].ts[j]=0;
+            zinfo->l1cache[i].pb_line[j]=0;
         }
 
 // initialize L2 cache
@@ -105,6 +115,7 @@ void SimInit(uint32_t shmid){
             zinfo->l2cache[i].array[j]=0;
             zinfo->l2cache[i].state[j]=I;
             zinfo->l2cache[i].ts[j]=0;
+            zinfo->l2cache[i].pb_line[j]=0;
         }
     }
 
@@ -116,6 +127,7 @@ void SimInit(uint32_t shmid){
         zinfo->nvc.array[j]=0;
         zinfo->nvc.state[j]=I;
         zinfo->nvc.ts[j]=0;
+        zinfo->nvc.pb_line[j]=0;
     }
 
 // initialize DRAM cache
@@ -125,6 +137,7 @@ void SimInit(uint32_t shmid){
         zinfo->dram.array[j]=0;
         zinfo->dram.state[j]=I;
         zinfo->dram.ts[j]=0;
+        zinfo->dram.pb_line[j]=0;
     }
 
 
@@ -305,6 +318,8 @@ VOID RecordMemWrite(VOID * ip, VOID * addr, uint32_t id)
           MemReq req;
           req.lineAddr = (Address) addr; 
           req.type = GETX;
+          req.persistent = zinfo->persistent[id];
+          req.epoch_id = zinfo->tx_id[id];
           req.cycle = zinfo->core[id].lastUpdateCycles;
           zinfo->core[id].lastUpdateCycles = l1_access(id, req)-1;
 
@@ -348,11 +363,11 @@ VOID fastForward(uint32_t id, OPCODE op){
         zinfo->core[id].lastUpdateCycles++;
 
         if (op == 271) {
-            //info("start tx %lu", zinfo->tx_id[id]);
+            //fprintf(trace, "start tx %lu", zinfo->tx_id[id]);
             zinfo->persistent[id]=true;
         }
         else if (op == 578) {
-            //info("end tx %lu", zinfo->tx_id[id]);
+            //fprintf(trace, "end tx %lu", zinfo->tx_id[id]);
             zinfo->persistent[id]=false; 
             zinfo->tx_id[id]++;
         }
@@ -424,6 +439,7 @@ VOID Fini(INT32 code, VOID *v)
             case NATIVE: 
                 info("NATIVE");
                 break;
+            case NVMLOG: 
                 info("NVMLOG");
                 break;
             case KILN: 
