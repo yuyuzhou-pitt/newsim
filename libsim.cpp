@@ -43,6 +43,10 @@ END_LEGAL */
 #include "galloc.h"
 #include "libsim.h"
 #include "native.h"
+#include "kiln.h"
+#include "nvmlog.h"
+#include "epb.h"
+#include "epb_bf.h"
 #include "log.h"
 
 KNOB<INT32> KnobProcIdx(KNOB_MODE_WRITEONCE, "pintool",
@@ -75,54 +79,6 @@ void SimInit(uint32_t shmid){
     futex_lock(&zinfo->lock); 
     zinfo->timestamp = 0; 
     zinfo->arch = ARCHITECTURE;
-/*    switch (zinfo->arch) {
-        case NATIVE:
-            l1_lookup=&native_l1_lookup;
-            l1_reverse_lookup=&native_l1_reverse_lookup;
-            l1_access=&native_l1_access;
-            l1_evict=&native_l1_evict;
-            l1_preinsert=&native_l1_preinsert;
-            l1_postinsert=&native_l1_postinsert;
-            l1_fetch=&native_l1_fetch;
-            l2_lookup=&native_l2_lookup;
-            l2_reverse_lookup=&native_l2_reverse_lookup;
-            l2_access=&native_l2_access;
-            l2_evict=&native_l2_evict;
-            l2_preinsert=&native_l2_preinsert;
-            l2_postinsert=&native_l2_postinsert;
-            l2_fetch=&native_l2_fetch;
-            nvc_lookup=&native_nvc_lookup;
-            nvc_reverse_lookup=&native_nvc_reverse_lookup;
-            nvc_access=&native_nvc_access;
-            nvc_evict=&native_nvc_evict;
-            nvc_preinsert=&native_nvc_preinsert;
-            nvc_postinsert=&native_nvc_postinsert;
-            nvc_fetch=&native_nvc_fetch;
-            dram_lookup=&native_dram_lookup;
-            dram_reverse_lookup=&native_dram_reverse_lookup;
-            dram_access=&native_dram_access;
-            dram_evict=&native_dram_evict;
-            dram_preinsert=&native_dram_preinsert;
-            dram_postinsert=&native_dram_postinsert;
-            dram_fetch=&native_dram_fetch;
-            nvm_access=&native_nvm_access;
-            break;
-        case NVMLOG:
-            //info("NVMLOG");
-            break;
-        case KILN:     
-            //info("KILN");
-            break;
-        case EPB:   
-            //info("EPB");
-            break;
-        case EPB_BF:
-            //info("EPB_BF");
-            break;
-        default:
-           //info("UNKNOWN");
-            break;
-    } */
 
     for (uint32_t i = 0; i < 8; i++) {
         zinfo->cycles[i]=0;
@@ -559,6 +515,7 @@ int main(int argc, char *argv[])
 
     switch (ARCHITECTURE) {
         case NATIVE:
+            info("NATIVE");
             l1_lookup=&native_l1_lookup;
             l1_reverse_lookup=&native_l1_reverse_lookup;
             l1_access=&native_l1_access;
@@ -590,19 +547,164 @@ int main(int argc, char *argv[])
             nvm_access=&native_nvm_access;
             break;
         case NVMLOG:
-            //info("NVMLOG");
+            info("NVMLOG");
+            l1_lookup=&nvmlog_l1_lookup;
+            l1_reverse_lookup=&nvmlog_l1_reverse_lookup;
+            l1_access=&nvmlog_l1_access;
+            l1_evict=&nvmlog_l1_evict;
+            l1_preinsert=&nvmlog_l1_preinsert;
+            l1_postinsert=&nvmlog_l1_postinsert;
+            l1_fetch=&nvmlog_l1_fetch;
+            l2_lookup=&nvmlog_l2_lookup;
+            l2_reverse_lookup=&nvmlog_l2_reverse_lookup;
+            l2_access=&nvmlog_l2_access;
+            l2_evict=&nvmlog_l2_evict;
+            l2_preinsert=&nvmlog_l2_preinsert;
+            l2_postinsert=&nvmlog_l2_postinsert;
+            l2_fetch=&nvmlog_l2_fetch;
+            nvc_lookup=&nvmlog_nvc_lookup;
+            nvc_reverse_lookup=&nvmlog_nvc_reverse_lookup;
+            nvc_access=&nvmlog_nvc_access;
+            nvc_evict=&nvmlog_nvc_evict;
+            nvc_preinsert=&nvmlog_nvc_preinsert;
+            nvc_postinsert=&nvmlog_nvc_postinsert;
+            nvc_fetch=&nvmlog_nvc_fetch;
+            dram_lookup=&nvmlog_dram_lookup;
+            dram_reverse_lookup=&nvmlog_dram_reverse_lookup;
+            dram_access=&nvmlog_dram_access;
+            dram_evict=&nvmlog_dram_evict;
+            dram_preinsert=&nvmlog_dram_preinsert;
+            dram_postinsert=&nvmlog_dram_postinsert;
+            dram_fetch=&nvmlog_dram_fetch;
+            nvm_access=&nvmlog_nvm_access;
             break;
         case KILN:     
-            //info("KILN");
+            info("KILN");
+            l1_lookup=&kiln_l1_lookup;
+            l1_reverse_lookup=&kiln_l1_reverse_lookup;
+            l1_access=&kiln_l1_access;
+            l1_evict=&kiln_l1_evict;
+            l1_preinsert=&kiln_l1_preinsert;
+            l1_postinsert=&kiln_l1_postinsert;
+            l1_fetch=&kiln_l1_fetch;
+            l2_lookup=&kiln_l2_lookup;
+            l2_reverse_lookup=&kiln_l2_reverse_lookup;
+            l2_access=&kiln_l2_access;
+            l2_evict=&kiln_l2_evict;
+            l2_preinsert=&kiln_l2_preinsert;
+            l2_postinsert=&kiln_l2_postinsert;
+            l2_fetch=&kiln_l2_fetch;
+            nvc_lookup=&kiln_nvc_lookup;
+            nvc_reverse_lookup=&kiln_nvc_reverse_lookup;
+            nvc_access=&kiln_nvc_access;
+            nvc_evict=&kiln_nvc_evict;
+            nvc_preinsert=&kiln_nvc_preinsert;
+            nvc_postinsert=&kiln_nvc_postinsert;
+            nvc_fetch=&kiln_nvc_fetch;
+            dram_lookup=&kiln_dram_lookup;
+            dram_reverse_lookup=&kiln_dram_reverse_lookup;
+            dram_access=&kiln_dram_access;
+            dram_evict=&kiln_dram_evict;
+            dram_preinsert=&kiln_dram_preinsert;
+            dram_postinsert=&kiln_dram_postinsert;
+            dram_fetch=&kiln_dram_fetch;
+            nvm_access=&kiln_nvm_access;
             break;
         case EPB:   
-            //info("EPB");
+            info("EPB");
+            l1_lookup=&epb_l1_lookup;
+            l1_reverse_lookup=&epb_l1_reverse_lookup;
+            l1_access=&epb_l1_access;
+            l1_evict=&epb_l1_evict;
+            l1_preinsert=&epb_l1_preinsert;
+            l1_postinsert=&epb_l1_postinsert;
+            l1_fetch=&epb_l1_fetch;
+            l2_lookup=&epb_l2_lookup;
+            l2_reverse_lookup=&epb_l2_reverse_lookup;
+            l2_access=&epb_l2_access;
+            l2_evict=&epb_l2_evict;
+            l2_preinsert=&epb_l2_preinsert;
+            l2_postinsert=&epb_l2_postinsert;
+            l2_fetch=&epb_l2_fetch;
+            nvc_lookup=&epb_nvc_lookup;
+            nvc_reverse_lookup=&epb_nvc_reverse_lookup;
+            nvc_access=&epb_nvc_access;
+            nvc_evict=&epb_nvc_evict;
+            nvc_preinsert=&epb_nvc_preinsert;
+            nvc_postinsert=&epb_nvc_postinsert;
+            nvc_fetch=&epb_nvc_fetch;
+            dram_lookup=&epb_dram_lookup;
+            dram_reverse_lookup=&epb_dram_reverse_lookup;
+            dram_access=&epb_dram_access;
+            dram_evict=&epb_dram_evict;
+            dram_preinsert=&epb_dram_preinsert;
+            dram_postinsert=&epb_dram_postinsert;
+            dram_fetch=&epb_dram_fetch;
+            nvm_access=&epb_nvm_access;
             break;
         case EPB_BF:
-            //info("EPB_BF");
+            info("EPB_BF");
+            l1_lookup=&epb_bf_l1_lookup;
+            l1_reverse_lookup=&epb_bf_l1_reverse_lookup;
+            l1_access=&epb_bf_l1_access;
+            l1_evict=&epb_bf_l1_evict;
+            l1_preinsert=&epb_bf_l1_preinsert;
+            l1_postinsert=&epb_bf_l1_postinsert;
+            l1_fetch=&epb_bf_l1_fetch;
+            l2_lookup=&epb_bf_l2_lookup;
+            l2_reverse_lookup=&epb_bf_l2_reverse_lookup;
+            l2_access=&epb_bf_l2_access;
+            l2_evict=&epb_bf_l2_evict;
+            l2_preinsert=&epb_bf_l2_preinsert;
+            l2_postinsert=&epb_bf_l2_postinsert;
+            l2_fetch=&epb_bf_l2_fetch;
+            nvc_lookup=&epb_bf_nvc_lookup;
+            nvc_reverse_lookup=&epb_bf_nvc_reverse_lookup;
+            nvc_access=&epb_bf_nvc_access;
+            nvc_evict=&epb_bf_nvc_evict;
+            nvc_preinsert=&epb_bf_nvc_preinsert;
+            nvc_postinsert=&epb_bf_nvc_postinsert;
+            nvc_fetch=&epb_bf_nvc_fetch;
+            dram_lookup=&epb_bf_dram_lookup;
+            dram_reverse_lookup=&epb_bf_dram_reverse_lookup;
+            dram_access=&epb_bf_dram_access;
+            dram_evict=&epb_bf_dram_evict;
+            dram_preinsert=&epb_bf_dram_preinsert;
+            dram_postinsert=&epb_bf_dram_postinsert;
+            dram_fetch=&epb_bf_dram_fetch;
+            nvm_access=&epb_bf_nvm_access;
             break;
         default:
-           //info("UNKNOWN");
+            info("UNKNOWN");
+            l1_lookup=&native_l1_lookup;
+            l1_reverse_lookup=&native_l1_reverse_lookup;
+            l1_access=&native_l1_access;
+            l1_evict=&native_l1_evict;
+            l1_preinsert=&native_l1_preinsert;
+            l1_postinsert=&native_l1_postinsert;
+            l1_fetch=&native_l1_fetch;
+            l2_lookup=&native_l2_lookup;
+            l2_reverse_lookup=&native_l2_reverse_lookup;
+            l2_access=&native_l2_access;
+            l2_evict=&native_l2_evict;
+            l2_preinsert=&native_l2_preinsert;
+            l2_postinsert=&native_l2_postinsert;
+            l2_fetch=&native_l2_fetch;
+            nvc_lookup=&native_nvc_lookup;
+            nvc_reverse_lookup=&native_nvc_reverse_lookup;
+            nvc_access=&native_nvc_access;
+            nvc_evict=&native_nvc_evict;
+            nvc_preinsert=&native_nvc_preinsert;
+            nvc_postinsert=&native_nvc_postinsert;
+            nvc_fetch=&native_nvc_fetch;
+            dram_lookup=&native_dram_lookup;
+            dram_reverse_lookup=&native_dram_reverse_lookup;
+            dram_access=&native_dram_access;
+            dram_evict=&native_dram_evict;
+            dram_preinsert=&native_dram_preinsert;
+            dram_postinsert=&native_dram_postinsert;
+            dram_fetch=&native_dram_fetch;
+            nvm_access=&native_nvm_access;
             break;
     }
 

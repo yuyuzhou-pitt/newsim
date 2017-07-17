@@ -7,7 +7,7 @@
 #include "galloc.h"
 #include "locks.h"
 
-#define ARCHITECTURE NATIVE
+#define ARCHITECTURE EPB
 #define COMMAND "./test/a.out"
 #define FASTFORWARD true
 #define FF_INS 10000
