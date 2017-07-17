@@ -92,7 +92,7 @@ uint64_t l1_access(uint32_t procId, MemReq req){
          //fprintf(trace, "after evict");
          //debug();
 
-         l1_fetch(procId, req); 
+         cycles = l1_fetch(procId, req); 
          //fprintf(trace, "after l1_fetch\n");
          //debug();
          l1_postinsert(procId, req, target_lineId);    
@@ -208,7 +208,7 @@ uint64_t l2_access(uint32_t procId, MemReq req){
          target_lineId=l2_preinsert(procId, req);
          cycles = l2_evict(procId, req, target_lineId);
          req.cycle=cycles;
-         l2_fetch(procId, req); 
+         cycles = l2_fetch(procId, req); 
          l2_postinsert(procId, req, target_lineId);    
          cycles += zinfo->l2cache[procId].accLat - 1;
      } else { //hit
@@ -319,7 +319,7 @@ uint64_t nvc_access(MemReq req){
          target_lineId=nvc_preinsert(req);
          cycles = nvc_evict(req, target_lineId);
          req.cycle=cycles;
-         nvc_fetch(req); 
+         cycles = nvc_fetch(req); 
          nvc_postinsert(req, target_lineId);    
          switch (req.type) {
              case GETS:
@@ -458,7 +458,7 @@ uint64_t dram_access(MemReq req){
          target_lineId=dram_preinsert(req);
          cycles = dram_evict(req, target_lineId);
          req.cycle=cycles;
-         dram_fetch(req); 
+         cycles = dram_fetch(req); 
          dram_postinsert(req, target_lineId);    
          cycles += zinfo->dram.accLat - 1;
      } else { //hit
@@ -736,7 +736,7 @@ VOID RecordMemRead(VOID * ip, VOID * addr, uint32_t id)
           req.type = GETS;
           req.cycle = zinfo->core[id].lastUpdateCycles; 
           zinfo->core[id].lastUpdateCycles = l1_access(id, req)-1;
-
+        fprintf(trace, "current cycle : %lu\n", zinfo->core[id].lastUpdateCycles);
         debug();
 
     }
@@ -756,6 +756,7 @@ VOID RecordMemWrite(VOID * ip, VOID * addr, uint32_t id)
           req.cycle = zinfo->core[id].lastUpdateCycles;
           zinfo->core[id].lastUpdateCycles = l1_access(id, req)-1;
 
+        fprintf(trace, "current cycle : %lu\n", zinfo->core[id].lastUpdateCycles);
         debug();
 
 
