@@ -74,10 +74,9 @@ void SimInit(uint32_t shmid){
     zinfo = gm_calloc<GlobSimInfo>();
     futex_lock(&zinfo->lock); 
     zinfo->timestamp = 0; 
-    zinfo->arch = ARCHITECURE;
-    switch (zinfo->arch) {
+    zinfo->arch = ARCHITECTURE;
+/*    switch (zinfo->arch) {
         case NATIVE:
-            //info("NATIVE");
             l1_lookup=&native_l1_lookup;
             l1_reverse_lookup=&native_l1_reverse_lookup;
             l1_access=&native_l1_access;
@@ -123,7 +122,7 @@ void SimInit(uint32_t shmid){
         default:
            //info("UNKNOWN");
             break;
-    }
+    } */
 
     for (uint32_t i = 0; i < 8; i++) {
         zinfo->cycles[i]=0;
@@ -452,7 +451,6 @@ VOID Fini(INT32 code, VOID *v)
             case NATIVE: 
                 info("NATIVE");
                 break;
-            case NVMLOG: 
                 info("NVMLOG");
                 break;
             case KILN: 
@@ -559,11 +557,64 @@ int main(int argc, char *argv[])
     } 
 
 
+    switch (ARCHITECTURE) {
+        case NATIVE:
+            l1_lookup=&native_l1_lookup;
+            l1_reverse_lookup=&native_l1_reverse_lookup;
+            l1_access=&native_l1_access;
+            l1_evict=&native_l1_evict;
+            l1_preinsert=&native_l1_preinsert;
+            l1_postinsert=&native_l1_postinsert;
+            l1_fetch=&native_l1_fetch;
+            l2_lookup=&native_l2_lookup;
+            l2_reverse_lookup=&native_l2_reverse_lookup;
+            l2_access=&native_l2_access;
+            l2_evict=&native_l2_evict;
+            l2_preinsert=&native_l2_preinsert;
+            l2_postinsert=&native_l2_postinsert;
+            l2_fetch=&native_l2_fetch;
+            nvc_lookup=&native_nvc_lookup;
+            nvc_reverse_lookup=&native_nvc_reverse_lookup;
+            nvc_access=&native_nvc_access;
+            nvc_evict=&native_nvc_evict;
+            nvc_preinsert=&native_nvc_preinsert;
+            nvc_postinsert=&native_nvc_postinsert;
+            nvc_fetch=&native_nvc_fetch;
+            dram_lookup=&native_dram_lookup;
+            dram_reverse_lookup=&native_dram_reverse_lookup;
+            dram_access=&native_dram_access;
+            dram_evict=&native_dram_evict;
+            dram_preinsert=&native_dram_preinsert;
+            dram_postinsert=&native_dram_postinsert;
+            dram_fetch=&native_dram_fetch;
+            nvm_access=&native_nvm_access;
+            break;
+        case NVMLOG:
+            //info("NVMLOG");
+            break;
+        case KILN:     
+            //info("KILN");
+            break;
+        case EPB:   
+            //info("EPB");
+            break;
+        case EPB_BF:
+            //info("EPB_BF");
+            break;
+        default:
+           //info("UNKNOWN");
+            break;
+    }
+
+
+
     pid_t cur = getpid();
     char pid_s[15];
     sprintf(pid_s, "libsim_%d.out", cur);
 
     trace = fopen(pid_s, "w");
+
+
 
     INS_AddInstrumentFunction(Instruction, 0);
     PIN_AddFiniFunction(Fini, 0);
