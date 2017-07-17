@@ -1,6 +1,6 @@
 PIN_HOME=/home/yuyuzhou/epb/pin/pin-2.10-45467-gcc.3.4.6-ia32_intel64-linux/
 
-epb: newsim
+epb: clean newsim
 	g++ -std=c++0x libsim.h galloc.cpp epb.cpp log.cpp -o epb
 
 newsim:

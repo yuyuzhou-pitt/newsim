@@ -63,6 +63,15 @@ FILE * trace;
 std::chrono::high_resolution_clock::time_point start;
 
 
+void atomic_add_timestamp(){
+    futex_lock(&zinfo->lock);
+    zinfo->timestamp++;
+    futex_unlock(&zinfo->lock);
+}
+
+
+/***********************l1 ************************************/
+
 int32_t l1_lookup(uint32_t procId, Address lineAddr){
     //range
     Address start = (lineAddr % zinfo->l1cache[procId].numSets)*L1D_WAYS; 
@@ -82,25 +91,22 @@ Address l1_reverse_lookup(uint32_t procId, const int32_t lineID){
 uint64_t l1_access(uint32_t procId, MemReq req){
      uint64_t cycles = req.cycle;
      int32_t target_lineId = l1_lookup(procId, req.lineAddr); 
+     if (req.type == PUTS) zinfo->pc.l1_PUTS[procId]++;
+     else if (req.type == PUTX) zinfo->pc.l1_PUTX[procId]++;
      if (target_lineId == -1) { //miss               
+         if (req.type == GETS) zinfo->pc.l1_mGETS[procId]++;
+         else if (req.type == GETX) zinfo->pc.l1_mGETX[procId]++;
          target_lineId=l1_preinsert(procId, req);
-         //fprintf(trace, "l1 miss, evict line %u\n", target_lineId);
-         //debug();
          cycles = l1_evict(procId, req, target_lineId);
          req.cycle=cycles;
-
-         //fprintf(trace, "after evict");
-         //debug();
-
          cycles = l1_fetch(procId, req); 
-         //fprintf(trace, "after l1_fetch\n");
-         //debug();
          l1_postinsert(procId, req, target_lineId);    
          cycles += zinfo->l1cache[procId].accLat - 1;
-         //fprintf(trace, "after l1 postinsert\n");
-     } else { //hit
+     } else { //hit 
+         if (req.type == GETS) zinfo->pc.l1_hGETS[procId]++;
+         else if (req.type == GETX) zinfo->pc.l1_hGETX[procId]++;
          l1_postinsert(procId, req, target_lineId);
-         cycles += zinfo->l1cache[procId].accLat - 1; 
+         if (req.type!=PUTS) cycles += zinfo->l1cache[procId].accLat - 1; 
      }
      return cycles; 
 }
@@ -129,22 +135,26 @@ void l1_postinsert(uint32_t procId, MemReq req, int32_t lineID){
          case GETS:
              zinfo->l1cache[procId].array[lineID]=req.lineAddr;
              zinfo->l1cache[procId].state[lineID]=E; 
-             zinfo->l1cache[procId].ts[lineID]=zinfo->timestamp++;
+             zinfo->l1cache[procId].ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          case GETX: 
              zinfo->l1cache[procId].array[lineID]=req.lineAddr;
              zinfo->l1cache[procId].state[lineID]=M; 
-             zinfo->l1cache[procId].ts[lineID]=zinfo->timestamp++;
+             zinfo->l1cache[procId].ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          case PUTS:
              zinfo->l1cache[procId].array[lineID]=req.lineAddr;
              zinfo->l1cache[procId].state[lineID]=E; 
-             zinfo->l1cache[procId].ts[lineID]=zinfo->timestamp++;
+             zinfo->l1cache[procId].ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          case PUTX:
              zinfo->l1cache[procId].array[lineID]=req.lineAddr;
              zinfo->l1cache[procId].state[lineID]=M; 
-             zinfo->l1cache[procId].ts[lineID]=zinfo->timestamp++;
+             zinfo->l1cache[procId].ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          default: 
              return;
@@ -204,7 +214,12 @@ Address l2_reverse_lookup(uint32_t procId, const int32_t lineID){
 uint64_t l2_access(uint32_t procId, MemReq req){
      uint64_t cycles = req.cycle;
      int32_t target_lineId = l2_lookup(procId, req.lineAddr); 
+
+     if (req.type == PUTS) zinfo->pc.l2_PUTS[procId]++;
+     else if (req.type == PUTX) zinfo->pc.l2_PUTX[procId]++;
      if (target_lineId == -1) { //miss               
+         if (req.type == GETS) zinfo->pc.l2_mGETS[procId]++;
+         else if (req.type == GETX) zinfo->pc.l2_mGETX[procId]++;
          target_lineId=l2_preinsert(procId, req);
          cycles = l2_evict(procId, req, target_lineId);
          req.cycle=cycles;
@@ -212,8 +227,10 @@ uint64_t l2_access(uint32_t procId, MemReq req){
          l2_postinsert(procId, req, target_lineId);    
          cycles += zinfo->l2cache[procId].accLat - 1;
      } else { //hit
+         if (req.type == GETS) zinfo->pc.l2_hGETS[procId]++;
+         else if (req.type == GETX) zinfo->pc.l2_hGETX[procId]++;
          l2_postinsert(procId, req, target_lineId);
-         cycles += zinfo->l2cache[procId].accLat - 1; 
+         if (req.type != PUTS) cycles += zinfo->l2cache[procId].accLat - 1;  //clean write back hit does not need to wrtie
      }
      return cycles; 
 }
@@ -236,28 +253,31 @@ uint32_t l2_preinsert(uint32_t procId, MemReq req){
     return bestCand;  
 }
 
-
 void l2_postinsert(uint32_t procId, MemReq req, int32_t lineID){
     switch (req.type) {
          case GETS:
              zinfo->l2cache[procId].array[lineID]=req.lineAddr;
              zinfo->l2cache[procId].state[lineID]=E; 
-             zinfo->l2cache[procId].ts[lineID]=zinfo->timestamp++;
+             zinfo->l2cache[procId].ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          case GETX: 
              zinfo->l2cache[procId].array[lineID]=req.lineAddr;
              zinfo->l2cache[procId].state[lineID]=M; 
-             zinfo->l2cache[procId].ts[lineID]=zinfo->timestamp++;
+             zinfo->l2cache[procId].ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          case PUTS:
              zinfo->l2cache[procId].array[lineID]=req.lineAddr;
              zinfo->l2cache[procId].state[lineID]=E; 
-             zinfo->l2cache[procId].ts[lineID]=zinfo->timestamp++;
+             zinfo->l2cache[procId].ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          case PUTX:
              zinfo->l2cache[procId].array[lineID]=req.lineAddr;
              zinfo->l2cache[procId].state[lineID]=M; 
-             zinfo->l2cache[procId].ts[lineID]=zinfo->timestamp++;
+             zinfo->l2cache[procId].ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          default: 
              return;
@@ -285,19 +305,19 @@ uint64_t l2_evict(uint32_t procId, MemReq req, const int32_t lineID){
         default: 
             return newreq.cycle; 
     }    
-    return nvc_access(newreq); 
+    return nvc_access(procId, newreq); 
 }
 
 
 uint64_t l2_fetch(uint32_t procId, MemReq req){
-    return nvc_access(req); 
+    return nvc_access(procId, req); 
 }
 
 
 
 /******************** nvc *************************************/
 
-int32_t nvc_lookup(Address lineAddr){
+int32_t nvc_lookup(uint32_t procId, Address lineAddr){
     //range
     Address start = (lineAddr % zinfo->nvc.numSets)*NVC_WAYS; 
     Address end = start + NVC_WAYS; 
@@ -308,58 +328,66 @@ int32_t nvc_lookup(Address lineAddr){
     return -1; 
 }
 
-Address nvc_reverse_lookup(const int32_t lineID){
+Address nvc_reverse_lookup(uint32_t procId, const int32_t lineID){
      return zinfo->nvc.array[lineID];
 }
 
-uint64_t nvc_access(MemReq req){
+uint64_t nvc_access(uint32_t procId, MemReq req){
+     futex_lock(&zinfo->nvc_lock);
      uint64_t cycles = req.cycle;
-     int32_t target_lineId = nvc_lookup(req.lineAddr); 
+     int32_t target_lineId = nvc_lookup(procId, req.lineAddr); 
+     if (req.type == PUTS) zinfo->pc.nvc_PUTS++;
+     else if (req.type == PUTX) zinfo->pc.nvc_PUTX++;
      if (target_lineId == -1) { //miss               
-         target_lineId=nvc_preinsert(req);
-         cycles = nvc_evict(req, target_lineId);
+         if (req.type == GETS) zinfo->pc.nvc_mGETS++;
+         else if (req.type == GETX) zinfo->pc.nvc_mGETX++;
+         target_lineId=nvc_preinsert(procId, req);
+         cycles = nvc_evict(procId, req, target_lineId);
          req.cycle=cycles;
-         cycles = nvc_fetch(req); 
-         nvc_postinsert(req, target_lineId);    
+         cycles = nvc_fetch(procId, req); 
+         nvc_postinsert(procId, req, target_lineId);    
          switch (req.type) {
              case GETS:
-                 cycles += zinfo->nvc.read_accLat - 1;
+                 cycles += zinfo->nvc.write_accLat - 1;
                  break;
              case GETX:
                  cycles += zinfo->nvc.write_accLat - 1;
                  break;
              case PUTS:
-                 cycles += zinfo->nvc.read_accLat - 1;
+                 cycles += zinfo->nvc.write_accLat - 1;
                  break;
              case PUTX:
                  cycles += zinfo->nvc.write_accLat - 1;
                  break;
              default:
-                 return cycles;
+                 break;
          }
      } else { //hit
-         nvc_postinsert(req, target_lineId);
+         if (req.type == GETS) zinfo->pc.nvc_hGETS++;
+         else if (req.type == GETX) zinfo->pc.nvc_hGETX++;
+         nvc_postinsert(procId, req, target_lineId);
          switch (req.type) {
              case GETS:
                  cycles += zinfo->nvc.read_accLat - 1;
                  break;
              case GETX:
-                 cycles += zinfo->nvc.write_accLat - 1;
+                 cycles += zinfo->nvc.read_accLat - 1;
                  break;
              case PUTS:
-                 cycles += zinfo->nvc.read_accLat - 1;
+                 //cycles += zinfo->nvc.write_accLat - 1;
                  break;
              case PUTX:
                  cycles += zinfo->nvc.write_accLat - 1;
                  break;
              default:
-                 return cycles;
+                 break;
          }
      }
+     futex_unlock(&zinfo->nvc_lock);
      return cycles; 
 }
 
-uint32_t nvc_preinsert(MemReq req){
+uint32_t nvc_preinsert(uint32_t procId, MemReq req){
     Address start = (req.lineAddr%zinfo->nvc.numSets)*NVC_WAYS;
     Address end = start + NVC_WAYS;
     uint32_t bestCand = start;
@@ -377,27 +405,31 @@ uint32_t nvc_preinsert(MemReq req){
 }
 
 
-void nvc_postinsert(MemReq req, int32_t lineID){
+void nvc_postinsert(uint32_t procId, MemReq req, int32_t lineID){
     switch (req.type) {
          case GETS:
              zinfo->nvc.array[lineID]=req.lineAddr;
              zinfo->nvc.state[lineID]=E; 
-             zinfo->nvc.ts[lineID]=zinfo->timestamp++;
+             zinfo->nvc.ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          case GETX: 
              zinfo->nvc.array[lineID]=req.lineAddr;
              zinfo->nvc.state[lineID]=M; 
-             zinfo->nvc.ts[lineID]=zinfo->timestamp++;
+             zinfo->nvc.ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          case PUTS:
              zinfo->nvc.array[lineID]=req.lineAddr;
              zinfo->nvc.state[lineID]=E; 
-             zinfo->nvc.ts[lineID]=zinfo->timestamp++;
+             zinfo->nvc.ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          case PUTX:
              zinfo->nvc.array[lineID]=req.lineAddr;
              zinfo->nvc.state[lineID]=M; 
-             zinfo->nvc.ts[lineID]=zinfo->timestamp++;
+             zinfo->nvc.ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          default: 
              return;
@@ -405,7 +437,7 @@ void nvc_postinsert(MemReq req, int32_t lineID){
     return;
 }
 
-uint64_t nvc_evict(MemReq req, const int32_t lineID){
+uint64_t nvc_evict(uint32_t procId, MemReq req, const int32_t lineID){
     MemReq newreq; 
     newreq.lineAddr = zinfo->nvc.array[lineID]; 
     newreq.cycle = req.cycle; 
@@ -425,18 +457,18 @@ uint64_t nvc_evict(MemReq req, const int32_t lineID){
         default: 
             return newreq.cycle; 
     }    
-    return dram_access(newreq); 
+    return dram_access(procId, newreq); 
 }
 
 
-uint64_t nvc_fetch(MemReq req){
-    return dram_access(req); 
+uint64_t nvc_fetch(uint32_t procId, MemReq req){
+    return dram_access(procId, req); 
 }
 
 
 /************************* dram    ***************************/
 
-int32_t dram_lookup(Address lineAddr){
+int32_t dram_lookup(uint32_t procId, Address lineAddr){
     //range
     Address start = (lineAddr % zinfo->dram.numSets)*DRAM_WAYS; 
     Address end = start + DRAM_WAYS; 
@@ -447,28 +479,36 @@ int32_t dram_lookup(Address lineAddr){
     return -1; 
 }
 
-Address dram_reverse_lookup(const int32_t lineID){
+Address dram_reverse_lookup(uint32_t procId, const int32_t lineID){
      return zinfo->dram.array[lineID];
 }
 
-uint64_t dram_access(MemReq req){
+uint64_t dram_access(uint32_t procId, MemReq req){
+     futex_lock(&zinfo->dram_lock);
      uint64_t cycles = req.cycle;
-     int32_t target_lineId = dram_lookup(req.lineAddr); 
+     int32_t target_lineId = dram_lookup(procId, req.lineAddr); 
+     if (req.type == PUTS) zinfo->pc.dram_PUTS++;
+     else if (req.type == PUTX) zinfo->pc.dram_PUTX++;
      if (target_lineId == -1) { //miss               
-         target_lineId=dram_preinsert(req);
-         cycles = dram_evict(req, target_lineId);
+         if (req.type == GETS) zinfo->pc.dram_mGETS++;
+         else if (req.type == GETX) zinfo->pc.dram_mGETX++;
+         target_lineId=dram_preinsert(procId, req);
+         cycles = dram_evict(procId, req, target_lineId);
          req.cycle=cycles;
-         cycles = dram_fetch(req); 
-         dram_postinsert(req, target_lineId);    
+         cycles = dram_fetch(procId, req); 
+         dram_postinsert(procId, req, target_lineId);    
          cycles += zinfo->dram.accLat - 1;
      } else { //hit
-         dram_postinsert(req, target_lineId);
-         cycles += zinfo->dram.accLat - 1; 
+         if (req.type == GETS) zinfo->pc.dram_hGETS++;
+         else if (req.type == GETX) zinfo->pc.dram_hGETX++;
+         dram_postinsert(procId, req, target_lineId);
+         if (req.type!=PUTS) cycles += zinfo->dram.accLat - 1; 
      }
+     futex_unlock(&zinfo->dram_lock);
      return cycles; 
 }
 
-uint32_t dram_preinsert(MemReq req){
+uint32_t dram_preinsert(uint32_t procId, MemReq req){
     Address start = (req.lineAddr%zinfo->dram.numSets)*DRAM_WAYS;
     Address end = start + DRAM_WAYS;
     uint32_t bestCand = start;
@@ -486,27 +526,31 @@ uint32_t dram_preinsert(MemReq req){
 }
 
 
-void dram_postinsert(MemReq req, int32_t lineID){
+void dram_postinsert(uint32_t procId, MemReq req, int32_t lineID){
     switch (req.type) {
          case GETS:
              zinfo->dram.array[lineID]=req.lineAddr;
              zinfo->dram.state[lineID]=E; 
-             zinfo->dram.ts[lineID]=zinfo->timestamp++;
+             zinfo->dram.ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          case GETX: 
              zinfo->dram.array[lineID]=req.lineAddr;
              zinfo->dram.state[lineID]=M; 
-             zinfo->dram.ts[lineID]=zinfo->timestamp++;
+             zinfo->dram.ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          case PUTS:
              zinfo->dram.array[lineID]=req.lineAddr;
              zinfo->dram.state[lineID]=E; 
-             zinfo->dram.ts[lineID]=zinfo->timestamp++;
+             zinfo->dram.ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          case PUTX:
              zinfo->dram.array[lineID]=req.lineAddr;
              zinfo->dram.state[lineID]=M; 
-             zinfo->dram.ts[lineID]=zinfo->timestamp++;
+             zinfo->dram.ts[lineID]=zinfo->timestamp;
+             atomic_add_timestamp();
              break;
          default: 
              return;
@@ -514,7 +558,7 @@ void dram_postinsert(MemReq req, int32_t lineID){
     return;
 }
 
-uint64_t dram_evict(MemReq req, const int32_t lineID){
+uint64_t dram_evict(uint32_t procId, MemReq req, const int32_t lineID){
     MemReq newreq; 
     newreq.lineAddr = zinfo->dram.array[lineID]; 
     newreq.cycle = req.cycle; 
@@ -534,33 +578,39 @@ uint64_t dram_evict(MemReq req, const int32_t lineID){
         default: 
             return newreq.cycle; 
     }    
-    return nvm_access(newreq); 
+    return nvm_access(procId, newreq); 
 }
 
-uint64_t dram_fetch(MemReq req){
-    return nvm_access(req); 
+uint64_t dram_fetch(uint32_t procId, MemReq req){
+    return nvm_access(procId, req); 
 }
 
 /************************* nvm ****************************/
 
-uint64_t nvm_access(MemReq req){
+uint64_t nvm_access(uint32_t procId, MemReq req){
+     futex_lock(&zinfo->nvm_lock);
      uint64_t cycles = req.cycle;
      switch (req.type) {
          case GETS:
              cycles += zinfo->nvm.read_accLat - 1;
+             zinfo->pc.nvm_GETS++;
              break;
          case GETX:
              cycles += zinfo->nvm.write_accLat - 1; 
+             zinfo->pc.nvm_GETX++;
              break;
          case PUTS: 
-             cycles += zinfo->nvm.read_accLat - 1;
+             //cycles += zinfo->nvm.write_accLat - 1;
+             zinfo->pc.nvm_PUTS++;
              break; 
          case PUTX:
+             zinfo->pc.nvm_PUTX++;
              cycles += zinfo->nvm.write_accLat - 1; 
              break; 
          default:
-             return cycles;
+             break;
      } 
+     futex_unlock(&zinfo->nvm_lock);
      return cycles; 
 }
 
@@ -568,7 +618,9 @@ uint64_t nvm_access(MemReq req){
 
 void SimInit(uint32_t shmid){
     zinfo = gm_calloc<GlobSimInfo>();
+    futex_lock(&zinfo->lock); 
     zinfo->timestamp = 0; 
+    zifo->arch = ARCHITECURE;
     for (uint32_t i = 0; i < 8; i++) {
         zinfo->cycles[i]=0;
         zinfo->FastForwardIns[i]=0;
@@ -623,7 +675,46 @@ void SimInit(uint32_t shmid){
     zinfo->global_phase = 0;    
     zinfo->phaseLength = PHASE_LENGTH;
     zinfo->FastForward = FASTFORWARD;
+
+
+// initialize perfomrance counters. 
+    for (uint32_t i = 0; i < 8; i++) { 
+       zinfo->pc.l1_hGETS[i]=0;
+       zinfo->pc.l1_hGETX[i]=0;
+       zinfo->pc.l1_mGETS[i]=0;
+       zinfo->pc.l1_mGETX[i]=0;
+       zinfo->pc.l1_PUTS[i]=0;
+       zinfo->pc.l1_PUTX[i]=0;
+
+       zinfo->pc.l2_hGETS[i]=0;
+       zinfo->pc.l2_hGETX[i]=0;
+       zinfo->pc.l2_mGETS[i]=0;
+       zinfo->pc.l2_mGETX[i]=0;
+       zinfo->pc.l2_PUTS[i]=0;
+       zinfo->pc.l2_PUTX[i]=0;
+    }
+    zinfo->pc.nvc_hGETS=0;
+    zinfo->pc.nvc_hGETX=0;
+    zinfo->pc.nvc_mGETS=0;
+    zinfo->pc.nvc_mGETX=0;
+    zinfo->pc.nvc_PUTS=0;
+    zinfo->pc.nvc_PUTX=0;
+
+    zinfo->pc.dram_hGETS=0;
+    zinfo->pc.dram_hGETX=0;
+    zinfo->pc.dram_mGETS=0;
+    zinfo->pc.dram_mGETX=0;
+    zinfo->pc.dram_PUTS=0;
+    zinfo->pc.dram_PUTX=0;
+
+    zinfo->pc.nvm_GETS=0;
+    zinfo->pc.nvm_GETX=0;
+    zinfo->pc.nvm_PUTS=0;
+    zinfo->pc.nvm_PUTX=0;
+
+    futex_unlock(&zinfo->lock); 
     gm_set_glob_ptr(zinfo);
+
 }
 
 void debug()
@@ -723,7 +814,7 @@ void debug()
 // Print a memory read record
 VOID RecordMemRead(VOID * ip, VOID * addr, uint32_t id)
 {
-    zinfo->timestamp++;
+    atomic_add_timestamp();
     if ( (zinfo->FastForward == false) || (zinfo->FastForwardIns[procIdx] >= FF_INS) ) {  // no longer in fast forwarding
 //        info("AF %d", zinfo->FastForwardIns[id]);
 //        fprintf(trace,"%lf : R %p\n", diff.count(), addr);
@@ -737,7 +828,7 @@ VOID RecordMemRead(VOID * ip, VOID * addr, uint32_t id)
           req.cycle = zinfo->core[id].lastUpdateCycles; 
           zinfo->core[id].lastUpdateCycles = l1_access(id, req)-1;
         fprintf(trace, "current cycle : %lu\n", zinfo->core[id].lastUpdateCycles);
-        debug();
+        //debug();
 
     }
 }
@@ -745,7 +836,7 @@ VOID RecordMemRead(VOID * ip, VOID * addr, uint32_t id)
 // Print a memory write record
 VOID RecordMemWrite(VOID * ip, VOID * addr, uint32_t id)
 {
-    zinfo->timestamp++;
+    atomic_add_timestamp();
     if ( (zinfo->FastForward == false) || (zinfo->FastForwardIns[procIdx] >= FF_INS) ) {  // no longer in fast forwarding
         auto ttp = std::chrono::system_clock::now();
         std::chrono::duration<double> diff = ttp-start;
@@ -757,7 +848,7 @@ VOID RecordMemWrite(VOID * ip, VOID * addr, uint32_t id)
           zinfo->core[id].lastUpdateCycles = l1_access(id, req)-1;
 
         fprintf(trace, "current cycle : %lu\n", zinfo->core[id].lastUpdateCycles);
-        debug();
+        //debug();
 
 
     }
@@ -852,6 +943,45 @@ VOID Instruction(INS ins, VOID *v)
 
 VOID Fini(INT32 code, VOID *v)
 {
+    if (procIdx == 0) {
+        for (uint32_t i = 0; i < 8; i++) {
+           info("zinfo->core[%u].lastUpdateCycles: %lu", i, zinfo->core[i].lastUpdateCycles);
+        }
+
+        for (uint32_t i = 0; i < 8; i++) {
+           info("zinfo->pc.l1_hGETS[%u]: %lu", i, zinfo->pc.l1_hGETS[i]);
+           info("zinfo->pc.l1_hGETX[%u]: %lu", i, zinfo->pc.l1_hGETX[i]);
+           info("zinfo->pc.l1_mGETS[%u]: %lu", i, zinfo->pc.l1_mGETS[i]);
+           info("zinfo->pc.l1_mGETX[%u]: %lu", i, zinfo->pc.l1_mGETX[i]);
+           info("zinfo->pc.l1_PUTS[%u]: %lu", i, zinfo->pc.l1_PUTS[i]);
+           info("zinfo->pc.l1_PUTS[%u]: %lu", i, zinfo->pc.l1_PUTX[i]);
+
+           info("zinfo->pc.l2_hGETS[%u]: %lu", i, zinfo->pc.l2_hGETS[i]);
+           info("zinfo->pc.l2_hGETX[%u]: %lu", i, zinfo->pc.l2_hGETX[i]);
+           info("zinfo->pc.l2_mGETS[%u]: %lu", i, zinfo->pc.l2_mGETS[i]);
+           info("zinfo->pc.l2_mGETX[%u]: %lu", i, zinfo->pc.l2_mGETX[i]);
+           info("zinfo->pc.l2_PUTS[%u]: %lu", i, zinfo->pc.l2_PUTS[i]);
+           info("zinfo->pc.l2_PUTS[%u]: %lu", i, zinfo->pc.l2_PUTX[i]);
+        }
+        info("zinfo->pc.nvc_hGETS: %lu", zinfo->pc.nvc_hGETS);
+        info("zinfo->pc.nvc_hGETX: %lu", zinfo->pc.nvc_hGETX);
+        info("zinfo->pc.nvc_mGETS: %lu", zinfo->pc.nvc_mGETS);
+        info("zinfo->pc.nvc_nGETX: %lu", zinfo->pc.nvc_mGETX);
+        info("zinfo->pc.nvc_PUTS: %lu", zinfo->pc.nvc_PUTS);
+        info("zinfo->pc.nvc_PUTX: %lu", zinfo->pc.nvc_PUTX);
+
+        info("zinfo->pc.dram_hGETS: %lu", zinfo->pc.dram_hGETS);
+        info("zinfo->pc.dram_hGETX: %lu", zinfo->pc.dram_hGETX);
+        info("zinfo->pc.dram_mGETS: %lu", zinfo->pc.dram_mGETS);
+        info("zinfo->pc.dram_mGETX: %lu", zinfo->pc.dram_mGETX);
+        info("zinfo->pc.dram_PUTS: %lu", zinfo->pc.dram_PUTS);
+        info("zinfo->pc.dram_PUTS: %lu", zinfo->pc.dram_PUTX);
+
+        info("zinfo->pc.nvm_GETS: %lu", zinfo->pc.nvm_GETS);
+        info("zinfo->pc.nvm_GETX: %lu", zinfo->pc.nvm_GETX);
+        info("zinfo->pc.nvm_PUTS: %lu", zinfo->pc.nvm_PUTS);
+        info("zinfo->pc.nvm_PUTS: %lu", zinfo->pc.nvm_PUTX);
+    }
     fprintf(trace, "#eof\n");
     fclose(trace);
 }
@@ -868,7 +998,7 @@ INT32 Usage()
 }
 
 /* ===================================================================== */
-/* Main                                                                  */
+/* ain                                                                  */
 /* ===================================================================== */
 
 int main(int argc, char *argv[])
@@ -916,7 +1046,7 @@ int main(int argc, char *argv[])
 
     // Never returns
     PIN_StartProgram();
-    
+ 
     return 0;
 }
 

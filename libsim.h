@@ -1,8 +1,10 @@
 /* This the epb's configure */
 
-#include<stdint.h>
-#include"galloc.h"
+#include <stdint.h>
+#include "galloc.h"
+#include "locks.h"
 
+#define ARCHITECURE NATIVE
 #define COMMAND "./test/a.out"
 #define FASTFORWARD true
 #define FF_INS 10000
@@ -11,7 +13,7 @@
 
 #define PIN  "/home/yuyuzhou/epb/pin/pin-2.10-45467-gcc.3.4.6-ia32_intel64-linux/pin"
 #define ARGS "-t obj-intel64/libsim.so -- ./test/a.out"
-#define numProcs 1
+#define numProcs 2
 
 #define L1D_SIZE 512   // make then extra small to help debuggin
 //#define L1D_SIZE 32768   //32KB
@@ -55,6 +57,14 @@
 typedef int64_t EPOCH_ID;
 typedef int64_t EPOCH_SID;
 typedef uint64_t Address;
+
+typedef enum{
+    NATIVE,  // no persistent suppport
+    NVMLOG,  // undo log into nvm
+    KILN,    // kiln
+    EPB,     // epb
+    EPB_BF   // epb with back flush. 
+} Arch; 
 
 typedef enum {
     GETS, // get line, exclusive permission not needed (triggered by a processor load)
@@ -147,13 +157,13 @@ struct NVCCache{
         uint32_t numSets;
 };
 
-int32_t nvc_lookup(Address lineAddr);
-Address nvc_reverse_lookup(const int32_t lineID);
-uint64_t nvc_access(MemReq req);
-uint64_t nvc_evict(MemReq req, const int32_t lineID);
-uint32_t nvc_preinsert(MemReq req);
-void nvc_postinsert(MemReq req, int32_t lineID);
-uint64_t nvc_fetch( MemReq req); 
+int32_t nvc_lookup(uint32_t procId, Address lineAddr);
+Address nvc_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t nvc_access(uint32_t procId, MemReq req);
+uint64_t nvc_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t nvc_preinsert(uint32_t procId, MemReq req);
+void nvc_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t nvc_fetch( uint32_t procId, MemReq req); 
 
 struct DRAM {
         uint32_t accLat; //latency of a normal access, split in get/put
@@ -163,13 +173,13 @@ struct DRAM {
         uint32_t numSets;
 };
 
-int32_t dram_lookup(Address lineAddr);
-Address dram_reverse_lookup(const int32_t lineID);
-uint64_t dram_access(MemReq req);
-uint64_t dram_evict(MemReq req, const int32_t lineID);
-uint32_t dram_preinsert(MemReq req);
-void dram_postinsert(MemReq req, int32_t lineID);
-uint64_t dram_fetch( MemReq req); 
+int32_t dram_lookup(uint32_t procId, Address lineAddr);
+Address dram_reverse_lookup(uint32_t procId, const int32_t lineID);
+uint64_t dram_access(uint32_t procId, MemReq req);
+uint64_t dram_evict(uint32_t procId, MemReq req, const int32_t lineID);
+uint32_t dram_preinsert(uint32_t procId, MemReq req);
+void dram_postinsert(uint32_t procId, MemReq req, int32_t lineID);
+uint64_t dram_fetch(uint32_t procId, MemReq req); 
 
 
 struct NVRAM{
@@ -177,10 +187,53 @@ struct NVRAM{
         uint32_t write_accLat;
 };
 
-uint64_t nvm_access(MemReq req);
+uint64_t nvm_access(uint32_t procId, MemReq req);
+
+struct PerformanceCounters{
+      uint64_t l1_hGETS[8]; // L1 GETS hits
+      uint64_t l1_hGETX[8]; // L1 GETX hits
+      uint64_t l1_mGETS[8]; // L1 GETS miss
+      uint64_t l1_mGETX[8]; // L1 GETX miss
+      uint64_t l1_PUTS[8]; // L1 PUTS
+      uint64_t l1_PUTX[8]; // L1 PUTX
+ 
+      uint64_t l2_hGETS[8]; // L2 GETS hits
+      uint64_t l2_hGETX[8]; // L2 GETX hits
+      uint64_t l2_mGETS[8]; // L2 GETS miss
+      uint64_t l2_mGETX[8]; // L2 GETX miss
+      uint64_t l2_PUTS[8]; // L2 PUTS
+      uint64_t l2_PUTX[8]; // L2 PUTX
+
+      uint64_t nvc_hGETS; // NVC GETS hits
+      uint64_t nvc_hGETX; // NVC GETX hits
+      uint64_t nvc_mGETS; // NVC GETS miss
+      uint64_t nvc_mGETX; // NVC GETX miss
+      uint64_t nvc_PUTS; // NVC PUTS
+      uint64_t nvc_PUTX; // NVC PUTX
+
+      uint64_t dram_hGETS; // DRAM GETS hits
+      uint64_t dram_hGETX; // DRAM GETX hits
+      uint64_t dram_mGETS; // DRAM GETS miss
+      uint64_t dram_mGETX; // DRAM GETX miss
+      uint64_t dram_PUTS; // DRAM PUTS
+      uint64_t dram_PUTX; // DRAM PUTX
+
+      uint64_t nvm_GETS; // NVM GETS
+      uint64_t nvm_GETX; // NVM GETX
+      uint64_t nvm_PUTS; // NVM PUTS
+      uint64_t nvm_PUTX; // NVM PUTX
+
+};
+
+void atomic_add_timestamp();
 
 
 struct GlobSimInfo {
+    Arch arch; 
+    lock_t lock; 
+    lock_t nvc_lock;
+    lock_t dram_lock;
+    lock_t nvm_lock;
     uint64_t timestamp;
     uint32_t cycles[8];
     uint32_t FastForwardIns[8]; 
@@ -194,6 +247,7 @@ struct GlobSimInfo {
     NVCCache nvc;
     DRAM dram;
     NVRAM nvm;
+    PerformanceCounters pc; 
 };
 
 extern GlobSimInfo* zinfo;
