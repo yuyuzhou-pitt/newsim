@@ -13,9 +13,9 @@ void main()
 {
 int i;
 
-for (i =0; i<10; i++) {
-__asm__ ("lfence");
-   hello();
-__asm__ ("sfence");
-}
+    for (i =0; i<10; i++) {
+      __asm__ ("lfence");
+        hello();
+      __asm__ ("sfence");
+    }
 }

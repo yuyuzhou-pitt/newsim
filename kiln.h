@@ -13,6 +13,60 @@
 
 
 
+uint64_t flush(uint32_t procId, uint64_t PersistTrax){
+    //info("PB flush %lu", PersistTrax);
+    //pb_info();
+    int i;
+    uint64_t cycles = 0; 
+    for (i = 0; i < PB_SIZE; i++) {
+        if (zinfo->pb[procId][i].tx_id <= PersistTrax) {
+             if (zinfo->pb[procId][i].level == CL3) { // in NVC alredy 
+                 cycles = cycles + 1; 
+                 zinfo->pb[procId][i].tx_id = -1;
+                 zinfo->pb[procId][i].level = NONE;
+                 zinfo->pb[procId][i].lineId = -1;
+                 zinfo->pb[procId][i].lineAddr = -1;
+             }
+             else { // flush NVC
+                 cycles = cycles + 1 + NVC_WRITE_LATENCY; 
+                 zinfo->pb[procId][i].tx_id = -1;
+                 zinfo->pb[procId][i].level = NONE;
+                 zinfo->pb[procId][i].lineId = -1;
+                 zinfo->pb[procId][i].lineAddr = -1;
+             }
+        } 
+    }
+
+    return 0;
+}
+
+
+uint64_t insert_PB(uint32_t procId, uint64_t buffer_lineID, uint64_t epoch_id, CacheLevel cl, uint64_t lineID,Address lineAddr){
+    //info("PB insert"); 
+    //pb_info();
+
+   if (epoch_id  < zinfo->nextPersistTrax[procId]) // persisted data, no need to insert. 
+        return 0; 
+
+    for (int i=0; i < PB_SIZE; i ++ ){
+        if (zinfo->pb[procId][i].lineAddr == lineAddr) buffer_lineID =i;
+    }
+
+    if ((zinfo->pb[procId][buffer_lineID].tx_id != epoch_id) && (zinfo->pb[procId][buffer_lineID].tx_id != (uint64_t)(-1) )) { //buffer is full
+        info("Error buffeer is full, buffer_id %lu, epoch_id %lu, nexPer %lu", buffer_lineID, epoch_id, zinfo->nextPersistTrax[procId]);
+    }
+    else {
+       if (zinfo->pb[procId][buffer_lineID].tx_id != epoch_id) // a new entry
+           zinfo->nextAvailablePBLine[procId] = (zinfo->nextAvailablePBLine[procId] + 1) % PB_SIZE; 
+       zinfo->pb[procId][buffer_lineID].tx_id = epoch_id;
+       zinfo->pb[procId][buffer_lineID].level = cl;
+       zinfo->pb[procId][buffer_lineID].lineId = lineID;        
+       zinfo->pb[procId][buffer_lineID].lineAddr = lineAddr;
+    }
+    return 1; 
+}
+
+
 
 /***********************l1 ************************************/
 
@@ -33,7 +87,20 @@ Address kiln_l1_reverse_lookup(uint32_t procId, const int32_t lineID){
 }
 
 uint64_t kiln_l1_access(uint32_t procId, MemReq req){
+     //info("l1 access"); 
      uint64_t cycles = req.cycle;
+     if (req.persistent == true) {  // it's a persistent write
+         if (req.epoch_id > zinfo->nextPersistTrax[procId]) { // new trax, flush previous trax
+             cycles+=flush(procId, zinfo->nextPersistTrax[procId]);
+             zinfo->nextPersistTrax[procId]++;              
+         } else if (req.epoch_id < zinfo->nextPersistTrax[procId]) { // old data treated as non volatile
+             req.epoch_id=-1; 
+             req.persistent = false; 
+             req.pb_id=-1;
+         }
+     }
+
+// votile write, or incomplete persistent write
      int32_t target_lineId = l1_lookup(procId, req.lineAddr); 
      if (req.type == PUTS) zinfo->pc.l1_PUTS[procId]++;
      else if (req.type == PUTX) zinfo->pc.l1_PUTX[procId]++;
@@ -44,15 +111,40 @@ uint64_t kiln_l1_access(uint32_t procId, MemReq req){
          cycles = l1_evict(procId, req, target_lineId);
          req.cycle=cycles;
          cycles = l1_fetch(procId, req); 
+
+         if (req.persistent == true) {  // it's a persistent write
+             zinfo->l1cache[procId].tx_id[target_lineId]=req.epoch_id;
+             if ( req.pb_id == (uint64_t)(-1))
+                 zinfo->l1cache[procId].pb_line[target_lineId] = zinfo->nextAvailablePBLine[procId];
+             else zinfo->l1cache[procId].pb_line[target_lineId] = req.pb_id;
+             cycles+=insert_PB(procId, zinfo->l1cache[procId].pb_line[target_lineId],req.epoch_id, CL1, target_lineId, req.lineAddr);
+         } else {
+             zinfo->l1cache[procId].pb_line[target_lineId]=-1;
+             zinfo->l1cache[procId].tx_id[target_lineId]=-1; 
+         }
+
          l1_postinsert(procId, req, target_lineId);    
          cycles += zinfo->l1cache[procId].accLat - 1;
      } else { //hit 
          if (req.type == GETS) zinfo->pc.l1_hGETS[procId]++;
          else if (req.type == GETX) zinfo->pc.l1_hGETX[procId]++;
+
+         if (req.persistent == true) {  // it's a persistent write
+             zinfo->l1cache[procId].tx_id[target_lineId]=req.epoch_id;
+             if ( req.pb_id == (uint64_t)(-1))
+                 zinfo->l1cache[procId].pb_line[target_lineId] = zinfo->nextAvailablePBLine[procId];
+             else zinfo->l1cache[procId].pb_line[target_lineId] = req.pb_id;
+             cycles+=insert_PB(procId, zinfo->l1cache[procId].pb_line[target_lineId],req.epoch_id, CL1, target_lineId, req.lineAddr);
+         } else {
+             zinfo->l1cache[procId].pb_line[target_lineId]=-1;
+             zinfo->l1cache[procId].tx_id[target_lineId]=-1; 
+         }
+
          l1_postinsert(procId, req, target_lineId);
          if (req.type!=PUTS) cycles += zinfo->l1cache[procId].accLat - 1; 
      }
      return cycles; 
+
 }
 
 uint32_t kiln_l1_preinsert(uint32_t procId, MemReq req){
@@ -110,6 +202,19 @@ uint64_t kiln_l1_evict(uint32_t procId, MemReq req, const int32_t lineID){
     MemReq newreq; 
     newreq.lineAddr = zinfo->l1cache[procId].array[lineID]; 
     newreq.cycle = req.cycle; 
+    //info("kiln evict %d", lineID);
+    if (zinfo->l1cache[procId].pb_line[lineID] == (uint64_t)(-1)) {
+        //info("not persist");
+        newreq.persistent = false;
+        newreq.epoch_id = -1;
+        newreq.pb_id = -1; 
+    }
+    else { // persist
+        //info("persist %lu", zinfo->l1cache[procId].pb_line[lineID] );
+        newreq.persistent = true;
+        newreq.epoch_id = zinfo->l1cache[procId].tx_id[lineID]; 
+        newreq.pb_id = zinfo->l1cache[procId].pb_line[lineID];
+    }
     switch (zinfo->l1cache[procId].state[lineID]) {
         case I: 
             return req.cycle;
@@ -156,6 +261,7 @@ Address kiln_l2_reverse_lookup(uint32_t procId, const int32_t lineID){
 }
 
 uint64_t kiln_l2_access(uint32_t procId, MemReq req){
+     //info("l2 access"); 
      uint64_t cycles = req.cycle;
      int32_t target_lineId = l2_lookup(procId, req.lineAddr); 
 
@@ -168,11 +274,35 @@ uint64_t kiln_l2_access(uint32_t procId, MemReq req){
          cycles = l2_evict(procId, req, target_lineId);
          req.cycle=cycles;
          cycles = l2_fetch(procId, req); 
+
+         if (req.persistent == true) {  // it's a persistent write
+             zinfo->l2cache[procId].tx_id[target_lineId]=req.epoch_id;
+             if ( req.pb_id == (uint64_t)(-1))
+                 zinfo->l2cache[procId].pb_line[target_lineId] = zinfo->nextAvailablePBLine[procId];
+             else zinfo->l2cache[procId].pb_line[target_lineId] = req.pb_id;
+             cycles+=insert_PB(procId, zinfo->l2cache[procId].pb_line[target_lineId],req.epoch_id, CL2, target_lineId, req.lineAddr);
+         } else {
+             zinfo->l2cache[procId].pb_line[target_lineId]=-1;
+             zinfo->l2cache[procId].tx_id[target_lineId]=-1; 
+         }
+
          l2_postinsert(procId, req, target_lineId);    
          cycles += zinfo->l2cache[procId].accLat - 1;
      } else { //hit
          if (req.type == GETS) zinfo->pc.l2_hGETS[procId]++;
          else if (req.type == GETX) zinfo->pc.l2_hGETX[procId]++;
+
+         if (req.persistent == true) {  // it's a persistent write
+             zinfo->l2cache[procId].tx_id[target_lineId]=req.epoch_id;
+             if ( req.pb_id == (uint64_t)(-1))
+                 zinfo->l2cache[procId].pb_line[target_lineId] = zinfo->nextAvailablePBLine[procId];
+             else zinfo->l2cache[procId].pb_line[target_lineId] = req.pb_id;
+             cycles+=insert_PB(procId, zinfo->l2cache[procId].pb_line[target_lineId],req.epoch_id, CL2, target_lineId, req.lineAddr);
+         } else {
+             zinfo->l2cache[procId].pb_line[target_lineId]=-1;
+             zinfo->l2cache[procId].tx_id[target_lineId]=-1; 
+         }
+
          l2_postinsert(procId, req, target_lineId);
          if (req.type != PUTS) cycles += zinfo->l2cache[procId].accLat - 1;  //clean write back hit does not need to wrtie
      }
@@ -232,7 +362,21 @@ void kiln_l2_postinsert(uint32_t procId, MemReq req, int32_t lineID){
 uint64_t kiln_l2_evict(uint32_t procId, MemReq req, const int32_t lineID){
     MemReq newreq; 
     newreq.lineAddr = zinfo->l2cache[procId].array[lineID]; 
-    newreq.cycle = req.cycle; 
+    newreq.cycle = req.cycle;
+
+    if (zinfo->l2cache[procId].pb_line[lineID] == (uint64_t)(-1)) {
+        newreq.persistent = false;
+        newreq.epoch_id = -1;
+        newreq.pb_id = -1;
+    }
+    else { // persist
+        newreq.persistent = true;
+        newreq.epoch_id = zinfo->l2cache[procId].tx_id[lineID];
+        newreq.pb_id = zinfo->l2cache[procId].pb_line[lineID];
+    }
+
+
+ 
     switch (zinfo->l2cache[procId].state[lineID]) {
         case I: 
             return req.cycle;
@@ -277,6 +421,7 @@ Address kiln_nvc_reverse_lookup(uint32_t procId, const int32_t lineID){
 }
 
 uint64_t kiln_nvc_access(uint32_t procId, MemReq req){
+     //info("nvc access"); 
      futex_lock(&zinfo->nvc_lock);
      uint64_t cycles = req.cycle;
      int32_t target_lineId = nvc_lookup(procId, req.lineAddr); 
@@ -289,6 +434,18 @@ uint64_t kiln_nvc_access(uint32_t procId, MemReq req){
          cycles = nvc_evict(procId, req, target_lineId);
          req.cycle=cycles;
          cycles = nvc_fetch(procId, req); 
+
+         if (req.persistent == true) {  // it's a persistent write
+             zinfo->nvc.tx_id[target_lineId]=req.epoch_id;
+             if ( req.pb_id == (uint64_t)(-1))
+                 zinfo->nvc.pb_line[target_lineId] = zinfo->nextAvailablePBLine[procId];
+             else zinfo->nvc.pb_line[target_lineId] = req.pb_id;
+             cycles+=insert_PB(procId, zinfo->nvc.pb_line[target_lineId],req.epoch_id, CL3, target_lineId, req.lineAddr);
+         } else {
+             zinfo->nvc.pb_line[target_lineId]=-1;
+             zinfo->nvc.tx_id[target_lineId]=-1; 
+         }
+
          nvc_postinsert(procId, req, target_lineId);    
          switch (req.type) {
              case GETS:
@@ -309,6 +466,18 @@ uint64_t kiln_nvc_access(uint32_t procId, MemReq req){
      } else { //hit
          if (req.type == GETS) zinfo->pc.nvc_hGETS++;
          else if (req.type == GETX) zinfo->pc.nvc_hGETX++;
+
+         if (req.persistent == true) {  // it's a persistent write
+             zinfo->nvc.tx_id[target_lineId]=req.epoch_id;
+             if ( req.pb_id == (uint64_t)(-1))
+                 zinfo->nvc.pb_line[target_lineId] = zinfo->nextAvailablePBLine[procId];
+             else zinfo->nvc.pb_line[target_lineId] = req.pb_id;
+             cycles+=insert_PB(procId, zinfo->nvc.pb_line[target_lineId],req.epoch_id, CL3, target_lineId, req.lineAddr);
+         } else {
+             zinfo->nvc.pb_line[target_lineId]=-1;
+             zinfo->nvc.tx_id[target_lineId]=-1; 
+         }
+
          nvc_postinsert(procId, req, target_lineId);
          switch (req.type) {
              case GETS:
@@ -385,6 +554,18 @@ uint64_t kiln_nvc_evict(uint32_t procId, MemReq req, const int32_t lineID){
     MemReq newreq; 
     newreq.lineAddr = zinfo->nvc.array[lineID]; 
     newreq.cycle = req.cycle; 
+
+    if (zinfo->nvc.pb_line[lineID] == (uint64_t)(-1)) {
+        newreq.persistent = false;
+        newreq.epoch_id = -1;
+        newreq.pb_id = -1;
+    }
+    else { // persist
+        newreq.persistent = true;
+        newreq.epoch_id = zinfo->nvc.tx_id[lineID];
+        newreq.pb_id = zinfo->nvc.pb_line[lineID];
+    }
+
     switch (zinfo->nvc.state[lineID]) {
         case I: 
             return req.cycle;
@@ -401,7 +582,10 @@ uint64_t kiln_nvc_evict(uint32_t procId, MemReq req, const int32_t lineID){
         default: 
             return newreq.cycle; 
     }    
-    return dram_access(procId, newreq); 
+
+    if (zinfo->nvc.pb_line[lineID] == (uint64_t)(-1)) 
+        return dram_access(procId, newreq); 
+    else return nvm_access(procId, newreq); 
 }
 
 
@@ -428,6 +612,7 @@ Address kiln_dram_reverse_lookup(uint32_t procId, const int32_t lineID){
 }
 
 uint64_t kiln_dram_access(uint32_t procId, MemReq req){
+     //info("dram access"); 
      futex_lock(&zinfo->dram_lock);
      uint64_t cycles = req.cycle;
      int32_t target_lineId = dram_lookup(procId, req.lineAddr); 
@@ -440,11 +625,35 @@ uint64_t kiln_dram_access(uint32_t procId, MemReq req){
          cycles = dram_evict(procId, req, target_lineId);
          req.cycle=cycles;
          cycles = dram_fetch(procId, req); 
+
+         if (req.persistent == true) {  // it's a persistent write
+             zinfo->dram.tx_id[target_lineId]=req.epoch_id;
+             if ( req.pb_id == (uint64_t)(-1))
+                 zinfo->dram.pb_line[target_lineId] = zinfo->nextAvailablePBLine[procId];
+             else zinfo->dram.pb_line[target_lineId] = req.pb_id;
+             cycles+=insert_PB(procId, zinfo->dram.pb_line[target_lineId],req.epoch_id, CL4, target_lineId, req.lineAddr);
+         } else {
+             zinfo->dram.pb_line[target_lineId]=-1;
+             zinfo->dram.tx_id[target_lineId]=-1; 
+         }
+
          dram_postinsert(procId, req, target_lineId);    
          cycles += zinfo->dram.accLat - 1;
      } else { //hit
          if (req.type == GETS) zinfo->pc.dram_hGETS++;
          else if (req.type == GETX) zinfo->pc.dram_hGETX++;
+
+         if (req.persistent == true) {  // it's a persistent write
+             zinfo->dram.tx_id[target_lineId]=req.epoch_id;
+             if ( req.pb_id == (uint64_t)(-1))
+                 zinfo->dram.pb_line[target_lineId] = zinfo->nextAvailablePBLine[procId];
+             else zinfo->dram.pb_line[target_lineId] = req.pb_id;
+             cycles+=insert_PB(procId, zinfo->dram.pb_line[target_lineId],req.epoch_id, CL4, target_lineId, req.lineAddr);
+         } else {
+             zinfo->dram.pb_line[target_lineId]=-1;
+             zinfo->dram.tx_id[target_lineId]=-1; 
+         }
+
          dram_postinsert(procId, req, target_lineId);
          if (req.type!=PUTS) cycles += zinfo->dram.accLat - 1; 
      }
@@ -532,8 +741,10 @@ uint64_t kiln_dram_fetch(uint32_t procId, MemReq req){
 /************************* nvm ****************************/
 
 uint64_t kiln_nvm_access(uint32_t procId, MemReq req){
+     //info("nvc access"); 
      futex_lock(&zinfo->nvm_lock);
      uint64_t cycles = req.cycle;
+
      switch (req.type) {
          case GETS:
              cycles += zinfo->nvm.read_accLat - 1;

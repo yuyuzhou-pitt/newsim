@@ -96,6 +96,7 @@ void SimInit(uint32_t shmid){
             zinfo->pb[i][j].tx_id = -1;
             zinfo->pb[i][j].level = NONE;
             zinfo->pb[i][j].lineId = -1;      
+            zinfo->pb[i][j].lineAddr = -1;
         }
 
 // initialize L1 cache
@@ -105,7 +106,8 @@ void SimInit(uint32_t shmid){
             zinfo->l1cache[i].array[j]=0;
             zinfo->l1cache[i].state[j]=I;
             zinfo->l1cache[i].ts[j]=0;
-            zinfo->l1cache[i].pb_line[j]=0;
+            zinfo->l1cache[i].pb_line[j]=-1;
+            zinfo->l1cache[i].tx_id[j]=-1;
         }
 
 // initialize L2 cache
@@ -115,7 +117,8 @@ void SimInit(uint32_t shmid){
             zinfo->l2cache[i].array[j]=0;
             zinfo->l2cache[i].state[j]=I;
             zinfo->l2cache[i].ts[j]=0;
-            zinfo->l2cache[i].pb_line[j]=0;
+            zinfo->l2cache[i].pb_line[j]=-1;
+            zinfo->l2cache[i].tx_id[j]=-1;
         }
     }
 
@@ -127,7 +130,8 @@ void SimInit(uint32_t shmid){
         zinfo->nvc.array[j]=0;
         zinfo->nvc.state[j]=I;
         zinfo->nvc.ts[j]=0;
-        zinfo->nvc.pb_line[j]=0;
+        zinfo->nvc.pb_line[j]=-1;
+        zinfo->nvc.tx_id[j]=-1;
     }
 
 // initialize DRAM cache
@@ -137,7 +141,8 @@ void SimInit(uint32_t shmid){
         zinfo->dram.array[j]=0;
         zinfo->dram.state[j]=I;
         zinfo->dram.ts[j]=0;
-        zinfo->dram.pb_line[j]=0;
+        zinfo->dram.pb_line[j]=-1;
+        zinfo->dram.tx_id[j]=-1;
     }
 
 
@@ -189,6 +194,125 @@ void SimInit(uint32_t shmid){
     futex_unlock(&zinfo->lock); 
     gm_set_glob_ptr(zinfo);
 
+}
+
+void pb_info(){
+    // print out persistent buffer
+    info("Persistent Buffer");
+    int cl; 
+    for (uint32_t i = 0; i <  PB_SIZE; i++) {
+       switch (zinfo->pb[0][i].level) {
+           case CL1:
+               cl = 1;
+               break;  
+           case CL2:
+               cl = 2;
+               break; 
+           case CL3:
+               cl = 3;
+               break; 
+           case CL4:
+               cl = 4;
+               break; 
+            default: 
+                cl = -1;
+       }
+       info("[%d] tx_id: %lu, level: %d, lineId %lu, lineAddr %lu",i, zinfo->pb[0][i].tx_id, cl, zinfo->pb[0][i].lineId, zinfo->pb[0][i].lineAddr); 
+    }
+
+}
+
+
+void debug_info()
+{
+    //print content of l1, l2, nvc, dram
+
+    char ch; 
+    info("L1 ");
+        for (uint32_t j =0; j<L1D_SIZE/64; j++) {
+            switch (zinfo->l1cache[0].state[j]) { 
+                case I:
+                    ch = 'I';
+                    break;
+                case S: 
+                    ch = 'S';
+                    break;
+                case E: 
+                    ch = 'E';
+                    break;
+                case M:
+                    ch = 'M';
+                    break; 
+                default: 
+                    ch = 'I';
+            }
+            info("Addr:%lx, State: %c, ts:%lu" ,zinfo->l1cache[0].array[j], ch, zinfo->l1cache[0].ts[j]);
+        }
+
+    info("L2 ");
+        for (uint32_t j =0; j<L2_SIZE/64; j++) {
+            switch (zinfo->l2cache[0].state[j]) {
+                case I:
+                    ch = 'I';
+                    break;
+                case S:
+                    ch = 'S';
+                    break;
+                case E:
+                    ch = 'E';
+                    break;
+                case M:
+                    ch = 'M';
+                    break;
+                default:
+                    ch = 'I';
+            }
+            info("Addr:%lx, State: %c, ts:%lu" ,zinfo->l2cache[0].array[j], ch, zinfo->l2cache[0].ts[j]);
+        }
+
+// print NVC cache
+    info("NVC ");
+        for (uint32_t j =0; j<NVC_SIZE/64; j++) {
+            switch (zinfo->nvc.state[j]) {
+                case I:
+                    ch = 'I';
+                    break;
+                case S:
+                    ch = 'S';
+                    break;
+                case E:
+                    ch = 'E';
+                    break;
+                case M:
+                    ch = 'M';
+                    break;
+                default:
+                    ch = 'I';
+            }
+            info("Addr:%lx, State: %c, ts:%lu" ,zinfo->nvc.array[j], ch, zinfo->nvc.ts[j]);
+        }
+
+//print DRAM cache
+    info("DRAM ");
+        for (uint32_t j =0; j<DRAM_SIZE/64; j++) {
+            switch (zinfo->dram.state[j]) {
+                case I:
+                    ch = 'I';
+                    break;
+                case S:
+                    ch = 'S';
+                    break;
+                case E:
+                    ch = 'E';
+                    break;
+                case M:
+                    ch = 'M';
+                    break;
+                default:
+                    ch = 'I';
+            }
+            info("Addr:%lx, State: %c, ts:%lu" ,zinfo->dram.array[j], ch, zinfo->dram.ts[j]);
+        }
 }
 
 void debug()
@@ -295,10 +419,14 @@ VOID RecordMemRead(VOID * ip, VOID * addr, uint32_t id)
         auto ttp = std::chrono::system_clock::now();
         std::chrono::duration<double> diff = ttp-start;
         fprintf(trace,"%lf : R %p\n", diff.count(),  addr);
-
+        //info("%lf : R %p", diff.count(),  addr);
+        //debug_info();
           MemReq req; 
           req.lineAddr = (Address) addr; 
           req.type = GETS;
+          req.persistent = false;
+          req.epoch_id = -1;
+          req.pb_id = -1;
           req.cycle = zinfo->core[id].lastUpdateCycles; 
           zinfo->core[id].lastUpdateCycles = l1_access(id, req)-1;
         fprintf(trace, "current cycle : %lu\n", zinfo->core[id].lastUpdateCycles);
@@ -315,11 +443,14 @@ VOID RecordMemWrite(VOID * ip, VOID * addr, uint32_t id)
         auto ttp = std::chrono::system_clock::now();
         std::chrono::duration<double> diff = ttp-start;
         fprintf(trace,"%lf : W %p\n", diff.count(), addr );
+        //info("%lf : W %p", diff.count(), addr );
+        //debug_info();
           MemReq req;
           req.lineAddr = (Address) addr; 
           req.type = GETX;
           req.persistent = zinfo->persistent[id];
           req.epoch_id = zinfo->tx_id[id];
+          req.pb_id = -1; // new req
           req.cycle = zinfo->core[id].lastUpdateCycles;
           zinfo->core[id].lastUpdateCycles = l1_access(id, req)-1;
 
@@ -354,7 +485,7 @@ VOID weave(uint32_t id){
 VOID fastForward(uint32_t id, OPCODE op){
     zinfo->FastForwardIns[id]++;
     if ( (zinfo->FastForward == true) && (zinfo->FastForwardIns[id] < FF_INS) ) {
-    //    info("id %d: FF %d", id, zinfo->FastForwardIns[id]);
+        //info("id %d: FF %d", id, zinfo->FastForwardIns[id]);
         PIN_RemoveInstrumentation();
     } 
     else {
@@ -408,6 +539,7 @@ VOID Instruction(INS ins, VOID *v)
     // Iterate over each memory operand of the instruction.
     for (UINT32 memOp = 0; memOp < memOperands; memOp++)
     {
+        //info("memory Access"); 
         if (INS_MemoryOperandIsRead(ins, memOp))
         {
             INS_InsertPredicatedCall(
@@ -429,7 +561,7 @@ VOID Instruction(INS ins, VOID *v)
                 IARG_UINT32,  procIdx,
                 IARG_END);
         }
-    }
+    } 
 }
 
 VOID Fini(INT32 code, VOID *v)
