@@ -10,13 +10,13 @@
 #define ARCHITECTURE EPB
 #define COMMAND "./test/a.out"
 #define FASTFORWARD true
-#define FF_INS 10000
+#define FF_INS 1
 
 #define PHASE_LENGTH 10000
 
 #define PIN  "/home/yuyuzhou/epb/pin/pin-2.10-45467-gcc.3.4.6-ia32_intel64-linux/pin"
 #define ARGS "-t obj-intel64/libsim.so -- ./test/a.out"
-#define numProcs 2
+#define numProcs 1
 
 #define L1D_SIZE 512   // make then extra small to help debuggin
 //#define L1D_SIZE 32768   //32KB
@@ -96,6 +96,7 @@ struct MemReq {
     Address lineAddr;
     AccessType type;
     uint64_t cycle; //cycle where request arrives at component
+    bool persistent; // whethre it is a persistent request
     EPOCH_ID epoch_id;
     EPOCH_SID epoch_sid;
 };
@@ -413,6 +414,8 @@ struct GlobSimInfo {
     DRAM dram;
     NVRAM nvm;
     PerformanceCounters pc; 
+    bool persistent[8];
+    uint64_t tx_id[8];
 };
 
 //extern GlobSimInfo* zinfo;

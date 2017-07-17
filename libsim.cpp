@@ -86,6 +86,8 @@ void SimInit(uint32_t shmid){
         zinfo->phase[i]=0;
         zinfo->core[i].lastUpdateCycles = 0;
         zinfo->core[i].lastUpdateInstrs = 0;
+        zinfo->persistent[i]=false;
+        zinfo->tx_id[i] = 0;
 
 // initialize L1 cache
         zinfo->l1cache[i].accLat = L1D_LATENCY;
@@ -334,7 +336,7 @@ VOID weave(uint32_t id){
 }
 
 
-VOID fastForward(uint32_t id){
+VOID fastForward(uint32_t id, OPCODE op){
     zinfo->FastForwardIns[id]++;
     if ( (zinfo->FastForward == true) && (zinfo->FastForwardIns[id] < FF_INS) ) {
     //    info("id %d: FF %d", id, zinfo->FastForwardIns[id]);
@@ -344,11 +346,23 @@ VOID fastForward(uint32_t id){
         zinfo->cycles[id]++;
         zinfo->core[id].lastUpdateInstrs++;
         zinfo->core[id].lastUpdateCycles++;
+
+        if (op == 271) {
+            //info("start tx %lu", zinfo->tx_id[id]);
+            zinfo->persistent[id]=true;
+        }
+        else if (op == 578) {
+            //info("end tx %lu", zinfo->tx_id[id]);
+            zinfo->persistent[id]=false; 
+            zinfo->tx_id[id]++;
+        }
+
         if (zinfo->cycles[id]/PHASE_LENGTH > zinfo->phase[id]) {
             zinfo->phase[id]++; //Previous phase end; 
             weave(id); 
         }
     }
+
     //if ( (zinfo->FastForward == true) && (zinfo->FastForwardIns[id] >= FF_INS) ) {
     //    zinfo->FastForwardIns[id]++;
     //    info("id %d: AF %d", id, zinfo->FastForwardIns[id]);
@@ -367,8 +381,11 @@ VOID Instruction(INS ins, VOID *v)
     // On the IA-32 and Intel(R) 64 architectures conditional moves and REP 
     // prefixed instructions appear as predicated instructions in Pin.
     // 
+ 
+    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)fastForward,IARG_UINT32,  procIdx, IARG_UINT32, INS_Opcode(ins),  IARG_END);
 
-    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)fastForward,IARG_UINT32,  procIdx, IARG_END);
+    //info("OPCODE %u : %s", INS_Opcode(ins), INS_Mnemonic(ins).c_str());
+
 
 
     UINT32 memOperands = INS_MemoryOperandCount(ins);
