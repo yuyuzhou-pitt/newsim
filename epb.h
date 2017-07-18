@@ -53,7 +53,7 @@ uint64_t epb_overflow_flush(uint32_t procId, uint64_t PersistTrax){
     int i;
     uint64_t cycles = 0;
     for (i = 0; i < PB_SIZE; i++) {
-        if (zinfo->pb[procId][i].tx_id <= PersistTrax) {
+        if (zinfo->pb[procId][i].tx_id < PersistTrax) {
               // flush NVM
                  cycles = cycles + 1 + NVM_WRITE_LATENCY;
                  zinfo->pb[procId][i].tx_id = -1;
@@ -61,7 +61,14 @@ uint64_t epb_overflow_flush(uint32_t procId, uint64_t PersistTrax){
                  zinfo->pb[procId][i].lineId = -1;
                  zinfo->pb[procId][i].lineAddr = -1;
              
+        } else if (zinfo->pb[procId][i].tx_id == PersistTrax) {
+                 cycles = cycles + 1 + 2*NVM_WRITE_LATENCY;
+                 zinfo->pb[procId][i].tx_id = -1;
+                 zinfo->pb[procId][i].level = NONE;
+                 zinfo->pb[procId][i].lineId = -1;
+                 zinfo->pb[procId][i].lineAddr = -1;
         }
+
     }
     return cycles;
 }

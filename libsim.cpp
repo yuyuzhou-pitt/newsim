@@ -192,6 +192,17 @@ void SimInit(uint32_t shmid){
     zinfo->pc.nvm_GETX=0;
     zinfo->pc.nvm_PUTS=0;
     zinfo->pc.nvm_PUTX=0;
+    
+    zinfo->nvc_to_dram_access =0;
+    zinfo->dram_to_nvc_read = 0;
+    zinfo->dram_to_nvc_write = 0;
+    zinfo->nvc_to_nvm_read = 0;
+    zinfo->nvc_to_nvm_write = 0;
+    zinfo->dram_to_nvm_read = 0; 
+    zinfo->dram_to_nvm_write = 0;
+
+    zinfo->persist_w_evict_nvc = 0; 
+    zinfo->last_nvm_access = 0; 
 
     futex_unlock(&zinfo->lock); 
     gm_set_glob_ptr(zinfo);
@@ -470,6 +481,7 @@ VOID UpdateGlobalPhase(){
        if (zinfo->phase[i]!=zinfo->phase[0]) return; 
     }
     zinfo->global_phase = zinfo->phase[0];
+    zinfo->weave = true;
 }
 
 
@@ -479,9 +491,53 @@ VOID weave(uint32_t id){
          usleep(100);
     }
     //weave work
-    //
-    //
-    printf("[core %d]Enter Bound %d\n", id, zinfo->global_phase); 
+    //  calculate bandwidth nvc dram nvm 
+    while (zinfo->weave == true) {
+        if (id == 0) { 
+            uint64_t nvc_dram_max = PHASE_LENGTH * DRAM_BANKS;
+            uint64_t nvm_max = PHASE_LENGTH * NVM_BANKS;
+        
+            uint64_t nvc_to_dram_access = zinfo->nvc_to_dram_access;  //number of access nvc-> drm
+            uint64_t dram_to_nvc_read = zinfo->dram_to_nvc_read;  // number of read dram -> nvm 
+            uint64_t dram_to_nvc_write = zinfo->dram_to_nvc_write; // number of write dram -> nvm
+        
+            uint64_t nvc_to_nvm_read = zinfo->nvc_to_nvm_read; //number of read nvc->nvm
+            uint64_t nvc_to_nvm_write = zinfo ->nvc_to_nvm_write; //number of write nvc->nvm
+            uint64_t dram_to_nvm_read = zinfo->dram_to_nvm_read;  // number of read dram -> nvm
+            uint64_t dram_to_nvm_write = zinfo->dram_to_nvm_read; // number of write dram -> nvm
+         
+            uint64_t persist_w_evict_nvc = zinfo->persist_w_evict_nvc; 
+        
+            float nvc_and_dram_bandwidth_percentage = ((nvc_to_dram_access * DRAM_LATENCY) + (dram_to_nvc_read * NVC_READ_LATENCY) + (dram_to_nvc_write * NVC_WRITE_LATENCY)) / nvc_dram_max; 
+            float nvc_to_dram_bandwidth_percentage = ((nvc_to_dram_access * DRAM_LATENCY)) / nvc_dram_max; 
+            float dram_to_nvc_bandwidth_percentage = ((dram_to_nvc_read * NVC_READ_LATENCY) + (dram_to_nvc_write * NVC_WRITE_LATENCY)) / nvc_dram_max; 
+            float nvm_bandwidth_percentage = ((nvc_to_nvm_read * NVM_READ_LATENCY) + (nvc_to_nvm_write * NVM_READ_LATENCY) + (dram_to_nvm_read * NVM_READ_LATENCY) + (dram_to_nvm_write * NVM_READ_LATENCY)) / nvm_max;
+            float nvc_ton_nvm_bandwidth_percentage = ((nvc_to_nvm_read * NVM_READ_LATENCY) + (nvc_to_nvm_write * NVM_READ_LATENCY)) / nvm_max;
+
+            printf("persist_w_evict_nvc %lu\n", persist_w_evict_nvc);        
+            printf("nvc_and_dram_bandwidth_percentage %.4f\n", nvc_and_dram_bandwidth_percentage);
+            printf("nvc_to_dram_bandwidth_percentage %.4f\n",nvc_to_dram_bandwidth_percentage);
+            printf("dram_to_nvc_bandwidth_percentage %.4f\n",dram_to_nvc_bandwidth_percentage);
+            printf("nvm_bandwidth_percentage %.4f\n",nvm_bandwidth_percentage);
+            printf("nvc_ton_nvm_bandwidth_percentage %.4f\n",nvc_ton_nvm_bandwidth_percentage);
+             
+            // clear data
+            zinfo->nvc_to_dram_access =0;
+            zinfo->dram_to_nvc_read = 0;
+            zinfo->dram_to_nvc_write = 0;
+            zinfo->nvc_to_nvm_read = 0;
+            zinfo->nvc_to_nvm_write = 0;
+            zinfo->dram_to_nvm_read = 0;
+            zinfo->dram_to_nvm_write = 0;
+        
+            zinfo->persist_w_evict_nvc = 0;
+            zinfo->weave =false; 
+        }
+        else usleep(100);
+    }
+
+    printf("[core %d]Finish Bound %d\n", id, zinfo->global_phase-1);
+//
 }
 
 

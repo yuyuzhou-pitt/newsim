@@ -7,7 +7,7 @@
 #include "galloc.h"
 #include "locks.h"
 
-#define ARCHITECTURE EPB
+#define ARCHITECTURE EPB_BF
 #define COMMAND "./test/a.out"
 #define FASTFORWARD true
 #define FF_INS 1
@@ -56,13 +56,13 @@
 #define NVM_ROW_HIT_LATENCY 114   //50ns
 #define NVM_READ_LATENCY 340 //300ns
 #define NVM_WRITE_LATENCY 2270 //1000ns
+#define NVM_BANKS 8
 
-
+#define BF_TRIGGER 100 
 
 typedef uint64_t EPOCH_ID;
 typedef uint64_t EPOCH_SID;
 typedef uint64_t Address;
-
 typedef enum{
     NATIVE,  // no persistent suppport
     NVMLOG,  // undo log into nvm
@@ -450,6 +450,20 @@ struct GlobSimInfo {
     PersistBuffer pb[8][PB_SIZE]; 
     uint64_t nextPersistTrax[8];
     uint32_t nextAvailablePBLine[8];
+
+    //phase based counter
+    uint64_t nvc_to_dram_access;  //number of access nvc-> drm
+    uint64_t dram_to_nvc_read;  // number of read dram -> nvm 
+    uint64_t dram_to_nvc_write; // number of write dram -> nvm
+
+    uint64_t nvc_to_nvm_read; //number of read nvc->nvm
+    uint64_t nvc_to_nvm_write; //number of write nvc->nvm
+    uint64_t dram_to_nvm_read;  // number of read dram -> nvm
+    uint64_t dram_to_nvm_write; // number of write dram -> nvm
+
+    uint64_t persist_w_evict_nvc; //number of persist write conflict with previous persist data need to evict nvc cacheline to nvm
+    bool weave; 
+    uint64_t last_nvm_access;
 };
 
 //extern GlobSimInfo* zinfo;
