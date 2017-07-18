@@ -61,6 +61,7 @@ uint64_t overflow_flush(uint32_t procId, uint64_t PersistTrax){
 uint64_t insert_PB(uint32_t procId, uint64_t buffer_lineID, uint64_t epoch_id, CacheLevel cl, uint64_t lineID,Address lineAddr){
     //info("PB insert"); 
     //pb_info();
+    uint64_t cycles=0;
 
    if (epoch_id  < zinfo->nextPersistTrax[procId]) // persisted data, no need to insert. 
         return 0; 
@@ -71,7 +72,7 @@ uint64_t insert_PB(uint32_t procId, uint64_t buffer_lineID, uint64_t epoch_id, C
 
     if ((zinfo->pb[procId][buffer_lineID].tx_id != epoch_id) && (zinfo->pb[procId][buffer_lineID].tx_id != (uint64_t)(-1) )) { //buffer is full
         info("Error buffeer is full, buffer_id %lu, epoch_id %lu, nexPer %lu", buffer_lineID, epoch_id, zinfo->nextPersistTrax[procId]);
-        overflow_flush(procId, epoch_id);
+        cycles = overflow_flush(procId, epoch_id);
     }
        if (zinfo->pb[procId][buffer_lineID].tx_id != epoch_id) // a new entry
            zinfo->nextAvailablePBLine[procId] = (zinfo->nextAvailablePBLine[procId] + 1) % PB_SIZE; 
@@ -79,7 +80,7 @@ uint64_t insert_PB(uint32_t procId, uint64_t buffer_lineID, uint64_t epoch_id, C
        zinfo->pb[procId][buffer_lineID].level = cl;
        zinfo->pb[procId][buffer_lineID].lineId = lineID;        
        zinfo->pb[procId][buffer_lineID].lineAddr = lineAddr;
-    return 1; 
+    return cycles+1; 
 }
 
 
@@ -426,8 +427,8 @@ int32_t kiln_nvc_lookup(uint32_t procId, Address lineAddr){
     Address start = (lineAddr % zinfo->nvc.numSets)*NVC_WAYS; 
     Address end = start + NVC_WAYS; 
     for (uint32_t i = start; i<end; i++) {
-         if (zinfo->nvc.array[i] == lineAddr)
-             return i;  
+        if ((zinfo->nvc.array[i] == lineAddr) && (zinfo->nvc.procId[i]==procId))
+     return i;  
     }
     return -1; 
 }
@@ -535,6 +536,7 @@ uint32_t kiln_nvc_preinsert(uint32_t procId, MemReq req){
 
 
 void kiln_nvc_postinsert(uint32_t procId, MemReq req, int32_t lineID){
+    zinfo->nvc.procId[lineID]=procId;
     switch (req.type) {
          case GETS:
              zinfo->nvc.array[lineID]=req.lineAddr;
@@ -617,7 +619,7 @@ int32_t kiln_dram_lookup(uint32_t procId, Address lineAddr){
     Address start = (lineAddr % zinfo->dram.numSets)*DRAM_WAYS; 
     Address end = start + DRAM_WAYS; 
     for (uint32_t i = start; i<end; i++) {
-         if (zinfo->dram.array[i] == lineAddr)
+         if ((zinfo->dram.array[i] == lineAddr) && (zinfo->dram.procId[i]==procId))
              return i;  
     }
     return -1; 
@@ -696,6 +698,7 @@ uint32_t kiln_dram_preinsert(uint32_t procId, MemReq req){
 
 
 void kiln_dram_postinsert(uint32_t procId, MemReq req, int32_t lineID){
+    zinfo->dram.procId[lineID]=procId; 
     switch (req.type) {
          case GETS:
              zinfo->dram.array[lineID]=req.lineAddr;

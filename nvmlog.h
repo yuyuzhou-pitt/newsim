@@ -267,7 +267,7 @@ int32_t nvmlog_nvc_lookup(uint32_t procId, Address lineAddr){
     Address start = (lineAddr % zinfo->nvc.numSets)*NVC_WAYS; 
     Address end = start + NVC_WAYS; 
     for (uint32_t i = start; i<end; i++) {
-         if (zinfo->nvc.array[i] == lineAddr)
+         if ((zinfo->nvc.array[i] == lineAddr) && (zinfo->nvc.procId[i]==procId))
              return i;  
     }
     return -1; 
@@ -418,8 +418,8 @@ int32_t nvmlog_dram_lookup(uint32_t procId, Address lineAddr){
     Address start = (lineAddr % zinfo->dram.numSets)*DRAM_WAYS; 
     Address end = start + DRAM_WAYS; 
     for (uint32_t i = start; i<end; i++) {
-         if (zinfo->dram.array[i] == lineAddr)
-             return i;  
+         if ((zinfo->dram.array[i] == lineAddr) && (zinfo->dram.procId[i]==procId))
+              return i;  
     }
     return -1; 
 }

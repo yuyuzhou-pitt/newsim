@@ -127,6 +127,7 @@ void SimInit(uint32_t shmid){
     zinfo->nvc.write_accLat = NVC_WRITE_LATENCY;
     zinfo->nvc.numSets = NVC_SIZE/(64*NVC_WAYS); 
     for (uint32_t j=0;j<NVC_SIZE/64;j++) {
+        zinfo->nvc.procId[j]=-1;
         zinfo->nvc.array[j]=0;
         zinfo->nvc.state[j]=I;
         zinfo->nvc.ts[j]=0;
@@ -138,6 +139,7 @@ void SimInit(uint32_t shmid){
     zinfo->dram.accLat = DRAM_LATENCY;
     zinfo->dram.numSets = DRAM_SIZE/(64*DRAM_WAYS);
     for (uint32_t j=0;j<DRAM_SIZE/64;j++) {
+        zinfo->dram.procId[j]=-1;
         zinfo->dram.array[j]=0;
         zinfo->dram.state[j]=I;
         zinfo->dram.ts[j]=0;
@@ -448,7 +450,8 @@ VOID RecordMemWrite(VOID * ip, VOID * addr, uint32_t id)
           MemReq req;
           req.lineAddr = (Address) addr; 
           req.type = GETX;
-          req.persistent = zinfo->persistent[id];
+          if (req.lineAddr >= 140730000000000) req.persistent = false;
+          else req.persistent = zinfo->persistent[id];
           req.epoch_id = zinfo->tx_id[id];
           req.pb_id = -1; // new req
           req.cycle = zinfo->core[id].lastUpdateCycles;

@@ -7,7 +7,7 @@
 #include "galloc.h"
 #include "locks.h"
 
-#define ARCHITECTURE KILN
+#define ARCHITECTURE EPB
 #define COMMAND "./test/a.out"
 #define FASTFORWARD true
 #define FF_INS 1
@@ -16,7 +16,7 @@
 
 #define PIN  "/home/yuyuzhou/epb/pin/pin-2.10-45467-gcc.3.4.6-ia32_intel64-linux/pin"
 #define ARGS "-t obj-intel64/libsim.so -- ./test/a.out"
-#define numProcs 1
+#define numProcs 2
 
 #define PB_SIZE 8 //persistent buffer size
 
@@ -170,7 +170,7 @@ uint64_t (*l2_fetch) (uint32_t procId, MemReq req);
 
 
 struct NVCCache{
-        uint32_t procId; //process Id
+        uint32_t procId[NVC_SIZE/64]; //process Id
         uint32_t read_accLat; //latency of a normal access, split in get/put
         uint32_t write_accLat;
         Address array[NVC_SIZE/64];
@@ -190,7 +190,7 @@ void (*nvc_postinsert) (uint32_t procId, MemReq req, int32_t lineID);
 uint64_t (*nvc_fetch) ( uint32_t procId, MemReq req); 
 
 struct DRAM {
-        uint32_t procId; //processId
+        uint32_t procId[DRAM_SIZE/64]; //processId
         uint32_t accLat; //latency of a normal access, split in get/put
         Address array[DRAM_SIZE/64];
         MESIState state[DRAM_SIZE/64];
