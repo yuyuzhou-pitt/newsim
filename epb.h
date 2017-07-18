@@ -37,7 +37,8 @@ uint64_t epb_flush(uint32_t procId, uint64_t PersistTrax){
                  req.persistent = false;  // do not need to write int persistent buffer. 
                  req.epoch_id = zinfo->pb[procId][i].tx_id;
                  req.pb_id = i;*/  
-                 cycles += NVM_WRITE_LATENCY; 
+                 cycles += NVC_WRITE_LATENCY; 
+                 if (zinfo->pb[procId][i].level == CL4) zinfo->dram_to_nvc_write++;
                  zinfo->pb[procId][i].tx_id = -1;
                  zinfo->pb[procId][i].level = NONE;
                  zinfo->pb[procId][i].lineId = -1;
@@ -54,19 +55,22 @@ uint64_t epb_overflow_flush(uint32_t procId, uint64_t PersistTrax){
     uint64_t cycles = 0;
     for (i = 0; i < PB_SIZE; i++) {
         if (zinfo->pb[procId][i].tx_id < PersistTrax) {
-              // flush NVM
+              // flush NVM, complete trax
                  cycles = cycles + 1 + NVM_WRITE_LATENCY;
                  zinfo->pb[procId][i].tx_id = -1;
                  zinfo->pb[procId][i].level = NONE;
                  zinfo->pb[procId][i].lineId = -1;
                  zinfo->pb[procId][i].lineAddr = -1;
+                 zinfo->nvc_to_nvm_write++;
              
         } else if (zinfo->pb[procId][i].tx_id == PersistTrax) {
+               // flush ongoing trax
                  cycles = cycles + 1 + 2*NVM_WRITE_LATENCY;
                  zinfo->pb[procId][i].tx_id = -1;
                  zinfo->pb[procId][i].level = NONE;
                  zinfo->pb[procId][i].lineId = -1;
                  zinfo->pb[procId][i].lineAddr = -1;
+                 zinfo->nvc_to_nvm_write=zinfo->nvc_to_nvm_write+2;
         }
 
     }
@@ -633,9 +637,14 @@ uint64_t epb_nvc_evict(uint32_t procId, MemReq req, const int32_t lineID){
             return newreq.cycle; 
     }    
 
-    if ((zinfo->nvc.tx_id[lineID] == (uint64_t)(-1)) || (zinfo->nvc.tx_id[lineID]>=zinfo->nextPersistTrax[procId])) 
+    if ((zinfo->nvc.tx_id[lineID] == (uint64_t)(-1)) || (zinfo->nvc.tx_id[lineID]>=zinfo->nextPersistTrax[procId])) {
+        if (zinfo->nvc.tx_id[lineID]!= (uint64_t)(-1)) zinfo->nvc_to_dram_write++;
         return dram_access(procId, newreq); 
-    else return nvm_access(procId, newreq); 
+    }
+    else {
+        zinfo->nvc_to_nvm_write++;
+        return nvm_access(procId, newreq); 
+    }
 }
 
 

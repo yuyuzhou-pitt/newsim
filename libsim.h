@@ -16,7 +16,7 @@
 
 #define PIN  "/home/yuyuzhou/epb/pin/pin-2.10-45467-gcc.3.4.6-ia32_intel64-linux/pin"
 #define ARGS "-t obj-intel64/libsim.so -- ./test/a.out"
-#define numProcs 2
+#define numProcs 1
 
 #define PB_SIZE 8 //persistent buffer size
 
@@ -56,7 +56,7 @@
 #define NVM_ROW_HIT_LATENCY 114   //50ns
 #define NVM_READ_LATENCY 340 //300ns
 #define NVM_WRITE_LATENCY 2270 //1000ns
-#define NVM_BANKS 8
+#define NVM_BANKS 16
 
 #define BF_TRIGGER 100 
 
@@ -261,6 +261,8 @@ struct PerformanceCounters{
 };
 
 void atomic_add_timestamp();
+void atomic_add_persist_w();
+void atomic_add_persist_w_evict_nvc();
 
 
 // NATIVE
@@ -452,15 +454,12 @@ struct GlobSimInfo {
     uint32_t nextAvailablePBLine[8];
 
     //phase based counter
-    uint64_t nvc_to_dram_access;  //number of access nvc-> drm
-    uint64_t dram_to_nvc_read;  // number of read dram -> nvm 
+    uint64_t nvc_to_dram_write;  //number of write nvc-> drm
     uint64_t dram_to_nvc_write; // number of write dram -> nvm
 
-    uint64_t nvc_to_nvm_read; //number of read nvc->nvm
     uint64_t nvc_to_nvm_write; //number of write nvc->nvm
-    uint64_t dram_to_nvm_read;  // number of read dram -> nvm
-    uint64_t dram_to_nvm_write; // number of write dram -> nvm
 
+    uint64_t persist_w; // number of persist write
     uint64_t persist_w_evict_nvc; //number of persist write conflict with previous persist data need to evict nvc cacheline to nvm
     bool weave; 
     uint64_t last_nvm_access;

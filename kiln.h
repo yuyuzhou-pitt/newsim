@@ -51,7 +51,7 @@ uint64_t overflow_flush(uint32_t procId, uint64_t PersistTrax){
                  zinfo->pb[procId][i].level = NONE;
                  zinfo->pb[procId][i].lineId = -1;
                  zinfo->pb[procId][i].lineAddr = -1;
-             
+                 zinfo->nvc_to_nvm_write=zinfo->nvc_to_nvm_write+2;
         }
     }
     return cycles;
@@ -573,7 +573,7 @@ uint64_t kiln_nvc_evict(uint32_t procId, MemReq req, const int32_t lineID){
     newreq.lineAddr = zinfo->nvc.array[lineID]; 
     newreq.cycle = req.cycle; 
 
-    if (zinfo->nvc.pb_line[lineID] == (uint64_t)(-1)) {
+    if (zinfo->nvc.tx_id[lineID] == (uint64_t)(-1)) {
         newreq.persistent = false;
         newreq.epoch_id = -1;
         newreq.pb_id = -1;
@@ -601,9 +601,13 @@ uint64_t kiln_nvc_evict(uint32_t procId, MemReq req, const int32_t lineID){
             return newreq.cycle; 
     }    
 
-    if (zinfo->nvc.pb_line[lineID] == (uint64_t)(-1)) 
+    if (zinfo->nvc.tx_id[lineID] == (uint64_t)(-1)) 
         return dram_access(procId, newreq); 
-    else return nvm_access(procId, newreq); 
+    else {
+        atomic_add_persist_w_evict_nvc();
+        zinfo->nvc_to_nvm_write++;
+        return nvm_access(procId, newreq);
+    } 
 }
 
 

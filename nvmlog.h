@@ -52,7 +52,10 @@ uint64_t nvmlog_l1_access(uint32_t procId, MemReq req){
          l1_postinsert(procId, req, target_lineId);
          if (req.type!=PUTS) cycles += zinfo->l1cache[procId].accLat - 1; 
      }
-     if (req.persistent == true) cycles += zinfo->nvm.write_accLat; 
+     if (req.persistent == true) { //presistent data, write undo log into nvm
+          cycles += zinfo->nvm.write_accLat; 
+          zinfo->nvc_to_nvm_write++;
+     }
      return cycles; 
 }
 
