@@ -2,16 +2,12 @@
 #include <sys/prctl.h>
 #include <unistd.h>
 #include <stdio.h>
-#include "pin.H"
 #include <chrono>
 #include <numeric>
 #include <sstream>
 #include "galloc.h"
 #include "libsim.h"
 #include "log.h"
-
-
-
 
 
 /***********************l1 ************************************/
@@ -45,13 +41,14 @@ uint64_t native_l1_access(uint32_t procId, MemReq req){
          req.cycle=cycles;
          cycles = l1_fetch(procId, req); 
          l1_postinsert(procId, req, target_lineId);    
-         cycles += zinfo->l1cache[procId].accLat - 1;
+         cycles += zinfo->l1cache[procId].accLat;
      } else { //hit 
          if (req.type == GETS) zinfo->pc.l1_hGETS[procId]++;
          else if (req.type == GETX) zinfo->pc.l1_hGETX[procId]++;
          l1_postinsert(procId, req, target_lineId);
-         if (req.type!=PUTS) cycles += zinfo->l1cache[procId].accLat - 1; 
+         if (req.type!=PUTS) cycles += zinfo->l1cache[procId].accLat; 
      }
+     printf("l1 access cycle: %lu\n", cycles );
      return cycles; 
 }
 
@@ -78,7 +75,7 @@ void native_l1_postinsert(uint32_t procId, MemReq req, int32_t lineID){
     switch (req.type) {
          case GETS:
              zinfo->l1cache[procId].array[lineID]=req.lineAddr;
-             zinfo->l1cache[procId].state[lineID]=E; 
+             if (zinfo->l1cache[procId].state[lineID] != M) zinfo->l1cache[procId].state[lineID]=E; 
              zinfo->l1cache[procId].ts[lineID]=zinfo->timestamp;
              atomic_add_timestamp();
              break;
@@ -107,6 +104,7 @@ void native_l1_postinsert(uint32_t procId, MemReq req, int32_t lineID){
 }
 
 uint64_t native_l1_evict(uint32_t procId, MemReq req, const int32_t lineID){
+    uint64_t cycles;
     MemReq newreq; 
     newreq.lineAddr = zinfo->l1cache[procId].array[lineID]; 
     newreq.cycle = req.cycle; 
@@ -125,8 +123,10 @@ uint64_t native_l1_evict(uint32_t procId, MemReq req, const int32_t lineID){
             break; 
         default: 
             return newreq.cycle; 
-    }    
-    return l2_access(procId, newreq); 
+    }   
+    cycles = l2_access(procId, newreq);
+    zinfo->l1cache[procId].state[lineID] = I;
+    return cycles;  
 }
 
 uint64_t native_l1_fetch(uint32_t procId, MemReq req){
@@ -169,13 +169,14 @@ uint64_t native_l2_access(uint32_t procId, MemReq req){
          req.cycle=cycles;
          cycles = l2_fetch(procId, req); 
          l2_postinsert(procId, req, target_lineId);    
-         cycles += zinfo->l2cache[procId].accLat - 1;
+         cycles += zinfo->l2cache[procId].accLat;
      } else { //hit
          if (req.type == GETS) zinfo->pc.l2_hGETS[procId]++;
          else if (req.type == GETX) zinfo->pc.l2_hGETX[procId]++;
          l2_postinsert(procId, req, target_lineId);
-         if (req.type != PUTS) cycles += zinfo->l2cache[procId].accLat - 1;  //clean write back hit does not need to wrtie
+         if (req.type != PUTS) cycles += zinfo->l2cache[procId].accLat;  //clean write back hit does not need to write
      }
+     printf("l2 access cycle: %lu\n", cycles );
      return cycles; 
 }
 
@@ -201,7 +202,7 @@ void native_l2_postinsert(uint32_t procId, MemReq req, int32_t lineID){
     switch (req.type) {
          case GETS:
              zinfo->l2cache[procId].array[lineID]=req.lineAddr;
-             zinfo->l2cache[procId].state[lineID]=E; 
+             if (zinfo->l2cache[procId].state[lineID] != M) zinfo->l2cache[procId].state[lineID]=E; 
              zinfo->l2cache[procId].ts[lineID]=zinfo->timestamp;
              atomic_add_timestamp();
              break;
@@ -230,6 +231,7 @@ void native_l2_postinsert(uint32_t procId, MemReq req, int32_t lineID){
 }
 
 uint64_t native_l2_evict(uint32_t procId, MemReq req, const int32_t lineID){
+    uint64_t cycles;
     MemReq newreq; 
     newreq.lineAddr = zinfo->l2cache[procId].array[lineID]; 
     newreq.cycle = req.cycle; 
@@ -249,7 +251,9 @@ uint64_t native_l2_evict(uint32_t procId, MemReq req, const int32_t lineID){
         default: 
             return newreq.cycle; 
     }    
-    return nvc_access(procId, newreq); 
+    cycles = nvc_access(procId, newreq);
+    zinfo->l2cache[procId].state[lineID] = I;  
+    return cycles;
 }
 
 
@@ -292,16 +296,16 @@ uint64_t native_nvc_access(uint32_t procId, MemReq req){
          nvc_postinsert(procId, req, target_lineId);    
          switch (req.type) {
              case GETS:
-                 cycles += zinfo->nvc.write_accLat - 1;
+                 cycles += zinfo->nvc.write_accLat;
                  break;
              case GETX:
-                 cycles += zinfo->nvc.write_accLat - 1;
+                 cycles += zinfo->nvc.write_accLat;
                  break;
              case PUTS:
-                 cycles += zinfo->nvc.write_accLat - 1;
+                 cycles += zinfo->nvc.write_accLat;
                  break;
              case PUTX:
-                 cycles += zinfo->nvc.write_accLat - 1;
+                 cycles += zinfo->nvc.write_accLat;
                  break;
              default:
                  break;
@@ -312,22 +316,23 @@ uint64_t native_nvc_access(uint32_t procId, MemReq req){
          nvc_postinsert(procId, req, target_lineId);
          switch (req.type) {
              case GETS:
-                 cycles += zinfo->nvc.read_accLat - 1;
+                 cycles += zinfo->nvc.read_accLat;
                  break;
              case GETX:
-                 cycles += zinfo->nvc.read_accLat - 1;
+                 cycles += zinfo->nvc.read_accLat;
                  break;
              case PUTS:
-                 //cycles += zinfo->nvc.write_accLat - 1;
+                 //cycles += zinfo->nvc.write_accLat;
                  break;
              case PUTX:
-                 cycles += zinfo->nvc.write_accLat - 1;
+                 cycles += zinfo->nvc.write_accLat;
                  break;
              default:
                  break;
          }
      }
      futex_unlock(&zinfo->nvc_lock);
+     printf("nvc access cycle: %lu\n", cycles );
      return cycles; 
 }
 
@@ -353,7 +358,7 @@ void native_nvc_postinsert(uint32_t procId, MemReq req, int32_t lineID){
     switch (req.type) {
          case GETS:
              zinfo->nvc.array[lineID]=req.lineAddr;
-             zinfo->nvc.state[lineID]=E; 
+             if (zinfo->nvc.state[lineID] != M) zinfo->nvc.state[lineID]=E; 
              zinfo->nvc.ts[lineID]=zinfo->timestamp;
              atomic_add_timestamp();
              break;
@@ -382,6 +387,7 @@ void native_nvc_postinsert(uint32_t procId, MemReq req, int32_t lineID){
 }
 
 uint64_t native_nvc_evict(uint32_t procId, MemReq req, const int32_t lineID){
+    uint64_t cycles;
     MemReq newreq; 
     newreq.lineAddr = zinfo->nvc.array[lineID]; 
     newreq.cycle = req.cycle; 
@@ -401,7 +407,9 @@ uint64_t native_nvc_evict(uint32_t procId, MemReq req, const int32_t lineID){
         default: 
             return newreq.cycle; 
     }    
-    return dram_access(procId, newreq); 
+    cycles = dram_access(procId, newreq); 
+    zinfo->nvc.state[lineID] = I;
+    return cycles; 
 }
 
 
@@ -441,14 +449,15 @@ uint64_t native_dram_access(uint32_t procId, MemReq req){
          req.cycle=cycles;
          cycles = dram_fetch(procId, req); 
          dram_postinsert(procId, req, target_lineId);    
-         cycles += zinfo->dram.accLat - 1;
+         cycles += zinfo->dram.accLat;
      } else { //hit
          if (req.type == GETS) zinfo->pc.dram_hGETS++;
          else if (req.type == GETX) zinfo->pc.dram_hGETX++;
          dram_postinsert(procId, req, target_lineId);
-         if (req.type!=PUTS) cycles += zinfo->dram.accLat - 1; 
+         if (req.type!=PUTS) cycles += zinfo->dram.accLat; 
      }
      futex_unlock(&zinfo->dram_lock);
+     printf("dram access cycle: %lu\n", cycles );
      return cycles; 
 }
 
@@ -474,7 +483,7 @@ void native_dram_postinsert(uint32_t procId, MemReq req, int32_t lineID){
     switch (req.type) {
          case GETS:
              zinfo->dram.array[lineID]=req.lineAddr;
-             zinfo->dram.state[lineID]=E; 
+             if (zinfo->dram.state[lineID]!=M) zinfo->dram.state[lineID]=E; 
              zinfo->dram.ts[lineID]=zinfo->timestamp;
              atomic_add_timestamp();
              break;
@@ -503,6 +512,7 @@ void native_dram_postinsert(uint32_t procId, MemReq req, int32_t lineID){
 }
 
 uint64_t native_dram_evict(uint32_t procId, MemReq req, const int32_t lineID){
+    uint64_t cycles;
     MemReq newreq; 
     newreq.lineAddr = zinfo->dram.array[lineID]; 
     newreq.cycle = req.cycle; 
@@ -522,7 +532,9 @@ uint64_t native_dram_evict(uint32_t procId, MemReq req, const int32_t lineID){
         default: 
             return newreq.cycle; 
     }    
-    return nvm_access(procId, newreq); 
+    cycles = nvm_access(procId, newreq); 
+    zinfo->dram.state[lineID] = I; 
+    return cycles; 
 }
 
 uint64_t native_dram_fetch(uint32_t procId, MemReq req){
@@ -536,25 +548,26 @@ uint64_t native_nvm_access(uint32_t procId, MemReq req){
      uint64_t cycles = req.cycle;
      switch (req.type) {
          case GETS:
-             cycles += zinfo->nvm.read_accLat - 1;
+             cycles += zinfo->nvm.read_accLat;
              zinfo->pc.nvm_GETS++;
              break;
          case GETX:
-             cycles += zinfo->nvm.write_accLat - 1; 
+             cycles += zinfo->nvm.read_accLat; 
              zinfo->pc.nvm_GETX++;
              break;
          case PUTS: 
-             //cycles += zinfo->nvm.write_accLat - 1;
+             //cycles += zinfo->nvm.write_accLat;
              zinfo->pc.nvm_PUTS++;
              break; 
          case PUTX:
              zinfo->pc.nvm_PUTX++;
-             cycles += zinfo->nvm.write_accLat - 1; 
+             cycles += zinfo->nvm.write_accLat; 
              break; 
          default:
              break;
      } 
      futex_unlock(&zinfo->nvm_lock);
+     printf("nvm access cycle: %lu\n", cycles );
      return cycles; 
 }
 

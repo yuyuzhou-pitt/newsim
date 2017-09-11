@@ -12,6 +12,12 @@
 using namespace std;
 
 typedef enum {
+    TRACE,
+    INTEL_PIN
+} SimMode;
+
+
+typedef enum {
     PS_INVALID,
     PS_RUNNING,
     PS_DONE,
@@ -37,7 +43,7 @@ void LaunchProcess(uint32_t procIdx, uint32_t shmid) {
     char buffer1[10];
     char buffer2[10];
 
-    const char *aptrs[10];
+    const char *aptrs[13];
     aptrs[0]=PIN;
     aptrs[1]="-t";
     aptrs[2]="obj-intel64/libsim.so";
@@ -49,6 +55,10 @@ void LaunchProcess(uint32_t procIdx, uint32_t shmid) {
     aptrs[6]=buffer2;
     aptrs[7]="--";
     aptrs[8]=COMMAND;
+//    aptrs[9] = "100";
+//    aptrs[10] = "100";
+//    aptrs[11] = "100";
+//    aptrs[12]=nullptr;
     aptrs[9]=nullptr;
 
     int cpid = fork();
@@ -90,6 +100,46 @@ void LaunchProcess(uint32_t procIdx, uint32_t shmid) {
 }
 
 
+void LaunchTraceProcess(uint32_t procIdx, uint32_t shmid) {
+    char buffer1[10];
+    char buffer2[10];
+    const char *aptrs[13];
+    aptrs[0]="/home/yuyuzhou/epb/newsim/tracesim";
+    aptrs[1]="-procIdx";
+    snprintf(buffer1, sizeof(buffer1), "%d", procIdx);
+    aptrs[2]=buffer1;
+    aptrs[3]="-shmid";
+    snprintf(buffer2, sizeof(buffer2), "%d", shmid);
+    aptrs[4]=buffer2;
+    aptrs[5]=nullptr;
+    int cpid = fork();
+    if (cpid) { //parent
+        assert(cpid > 0);
+        childInfo[procIdx].pid = cpid;
+        childInfo[procIdx].status = PS_RUNNING;
+    } else if (cpid < 0)            // failed to fork
+    {
+        perror("Failed to fork");
+        return;
+    } else { //child
+        if (!aslr) {
+            //Get old personality flags & update
+            int pers = personality(((unsigned int)-1) /*returns current pers flags; arg is a long, hence the cast, see man*/);
+            if (pers == -1 || personality(pers | ADDR_NO_RANDOMIZE) == -1) {
+                perror("personality() call failed");
+                perror("Could not change personality to disable address space randomization!");
+            }
+            int newPers = personality(((unsigned int)-1));
+            if ((newPers & ADDR_NO_RANDOMIZE) == 0) perror("personality() call was not honored!");
+        }
+        //cout << "child" << aptrs[0] <<endl;
+        if (execvp(aptrs[0], (char* const*)aptrs) == -1) {
+            perror("Could not exec, killing child");
+        }
+
+    }
+}
+
 int eraseChild(int pid) {
     for (int i = 0; i < 8; i++) {
         if (childInfo[i].pid == pid) {
@@ -107,7 +157,7 @@ int main(int argc, char *argv[])
 {
     GlobSimInfo* zinfo = nullptr;
 
-    uint32_t gmSize = 1; /*default 1MB*/
+    uint32_t gmSize = 100; /*default 1MB*/
     info("Creating global segment, %d MBs", gmSize);
     int shmid = gm_init(((size_t)gmSize) << 20 /*MB to Bytes*/);
     info("Global segment shmid = %d", shmid);
@@ -116,7 +166,11 @@ int main(int argc, char *argv[])
 
 
     for (uint32_t procIdx = 0; procIdx < numProcs; procIdx++) {
-        LaunchProcess(procIdx, shmid);
+        if (SIMULATOR == INTEL_PIN) { 
+            LaunchProcess(procIdx, shmid);
+        } else if (SIMULATOR == TRACE) {
+            LaunchTraceProcess(procIdx, shmid);
+        }
     }  
 
 
@@ -139,36 +193,5 @@ int main(int argc, char *argv[])
         }        
 
     } 
-
-
-
- 
    return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

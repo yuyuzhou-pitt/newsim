@@ -7,10 +7,22 @@
 #include "galloc.h"
 #include "locks.h"
 
-#define ARCHITECTURE EPB_BF
+#define SIMULATOR TRACE
+// Possible Opt: TRACE  | INTEL_PIN 
+
+#define ARCHITECTURE KILN
+// Possible Opt:  NATIVE | NVMLOG | KILN  | EPB   | EPB_BF
+
+
 #define COMMAND "./test/a.out"
-#define FASTFORWARD true
-#define FF_INS 1
+//TPC-C
+//#define COMMAND "/home/yuyuzhou/whisper/whisper/nstore/src/nstore -x20000 -k10000 -e4 -w -t -p0.8 -n0"
+//#define COMMAND "/home/yuyuzhou/whisper/whisper/nstore/src/nstore"
+
+//#define COMMAND "/home/yuyuzhou/epb/benchmark/SPS/SPS"
+#define FASTFORWARD false
+#define FF_INS 0
+//#define FF_INS 10000000
 
 #define PHASE_LENGTH 10000
 
@@ -18,13 +30,12 @@
 #define ARGS "-t obj-intel64/libsim.so -- ./test/a.out"
 #define numProcs 1
 
-#define PB_SIZE 8 //persistent buffer size
+#define PB_SIZE 2 //persistent buffer size
 
 #define L1D_SIZE 512   // make then extra small to help debuggin
 //#define L1D_SIZE 32768   //32KB
 #define L1D_LATENCY 4    // 4 cycle
 #define L1D_WAYS 4
-
 
 #define L1I_SIZE 512   // make then extra small to help debuggin
 //#define L1I_SIZE 32768
@@ -461,6 +472,7 @@ struct GlobSimInfo {
 
     uint64_t persist_w; // number of persist write
     uint64_t persist_w_evict_nvc; //number of persist write conflict with previous persist data need to evict nvc cacheline to nvm
+    uint64_t mem_access; 
     bool weave; 
     uint64_t last_nvm_access;
 };

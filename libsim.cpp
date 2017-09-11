@@ -64,6 +64,7 @@ uint32_t procIdx;
 
 
 FILE * trace;
+
 std::chrono::high_resolution_clock::time_point start;
 
 
@@ -210,6 +211,7 @@ void SimInit(uint32_t shmid){
 
     zinfo->persist_w_evict_nvc = 0; 
     zinfo->persist_w = 0;
+    zinfo->mem_access = 0;
 
     zinfo->last_nvm_access = 0; 
 
@@ -435,12 +437,16 @@ void debug()
 VOID RecordMemRead(VOID * ip, VOID * addr, uint32_t id)
 {
     atomic_add_timestamp();
-    if ( (zinfo->FastForward == false) || (zinfo->FastForwardIns[procIdx] >= FF_INS) ) {  // no longer in fast forwarding
+    zinfo->cycles[id]--;
+    zinfo->core[id].lastUpdateCycles--;
+
+    zinfo->mem_access++;
+    if ((zinfo->FastForward == false) || (zinfo->FastForwardIns[procIdx] >= FF_INS)) {  // no longer in fast forwarding
 //        info("AF %d", zinfo->FastForwardIns[id]);
 //        fprintf(trace,"%lf : R %p\n", diff.count(), addr);
-        auto ttp = std::chrono::system_clock::now();
-        std::chrono::duration<double> diff = ttp-start;
-        fprintf(trace,"%lf : R %p\n", diff.count(),  addr);
+        //auto ttp = std::chrono::system_clock::now();
+        //std::chrono::duration<double> diff = ttp-start;
+        //fprintf(trace,"%lf : R %p\n", diff.count(),  addr);
         //info("%lf : R %p", diff.count(),  addr);
         //debug_info();
           MemReq req; 
@@ -450,8 +456,8 @@ VOID RecordMemRead(VOID * ip, VOID * addr, uint32_t id)
           req.epoch_id = -1;
           req.pb_id = -1;
           req.cycle = zinfo->core[id].lastUpdateCycles; 
-          zinfo->core[id].lastUpdateCycles = l1_access(id, req)-1;
-        fprintf(trace, "current cycle : %lu\n", zinfo->core[id].lastUpdateCycles);
+          zinfo->core[id].lastUpdateCycles = l1_access(id, req);
+        //fprintf(trace, "current cycle : %lu\n", zinfo->core[id].lastUpdateCycles);
         //debug();
 
     }
@@ -460,17 +466,21 @@ VOID RecordMemRead(VOID * ip, VOID * addr, uint32_t id)
 // Print a memory write record
 VOID RecordMemWrite(VOID * ip, VOID * addr, uint32_t id)
 {
+
     atomic_add_timestamp();
+    zinfo->cycles[id]--;
+    zinfo->core[id].lastUpdateCycles--;
     if ( (zinfo->FastForward == false) || (zinfo->FastForwardIns[procIdx] >= FF_INS) ) {  // no longer in fast forwarding
-        auto ttp = std::chrono::system_clock::now();
-        std::chrono::duration<double> diff = ttp-start;
-        fprintf(trace,"%lf : W %p\n", diff.count(), addr );
+        //auto ttp = std::chrono::system_clock::now();
+        //std::chrono::duration<double> diff = ttp-start;
+        zinfo->mem_access++;
+        //fprintf(trace,"%lf : W %p\n", diff.count(), addr );
         //info("%lf : W %p", diff.count(), addr );
         //debug_info();
           MemReq req;
           req.lineAddr = (Address) addr; 
           req.type = GETX;
-          if (req.lineAddr >= 140730000000000) req.persistent = false;
+          if (req.lineAddr >= 140737488200000) req.persistent = false;
           else 
               req.persistent = zinfo->persistent[id];
           req.epoch_id = zinfo->tx_id[id];
@@ -478,9 +488,9 @@ VOID RecordMemWrite(VOID * ip, VOID * addr, uint32_t id)
           req.cycle = zinfo->core[id].lastUpdateCycles;
 
           if (req.persistent == true) atomic_add_persist_w();
-          zinfo->core[id].lastUpdateCycles = l1_access(id, req)-1;
+          zinfo->core[id].lastUpdateCycles = l1_access(id, req);
 
-        fprintf(trace, "current cycle : %lu\n", zinfo->core[id].lastUpdateCycles);
+        //fprintf(trace, "current cycle : %lu\n", zinfo->core[id].lastUpdateCycles);
         //debug();
 
 
@@ -516,12 +526,15 @@ VOID weave(uint32_t id){
          
             uint64_t persist_w_evict_nvc = zinfo->persist_w_evict_nvc;
             uint64_t persist_w = zinfo->persist_w; 
+            uint64_t mem_access = zinfo->mem_access; 
 
             double nvc_and_dram_bandwidth_percentage = (double)((nvc_to_dram_write * DRAM_LATENCY) + (dram_to_nvc_write * NVC_WRITE_LATENCY)) / (double)(nvc_dram_max);
             double nvc_to_dram_bandwidth_percentage = (double)(nvc_to_dram_write * DRAM_LATENCY) / (double)(nvc_dram_max);
             double dram_to_nvc_bandwidth_percentage = (double)(dram_to_nvc_write * NVC_WRITE_LATENCY) / (double)(nvc_dram_max);
             double nvc_to_nvm_bandwidth_percentage = (double)((nvc_to_nvm_write * NVM_WRITE_LATENCY)) /(double) (nvm_max);
-        
+
+                    
+            printf("mem access %lu\n", mem_access);        
             printf("persist_w %lu\n", persist_w);        
             printf("persist_w_evict_nvc %lu\n", persist_w_evict_nvc);        
 
@@ -537,6 +550,7 @@ VOID weave(uint32_t id){
         
             zinfo->persist_w_evict_nvc = 0;
             zinfo->persist_w = 0;
+            zinfo->mem_access = 0;
             zinfo->weave =false; 
         }
         else usleep(100);
@@ -559,13 +573,13 @@ VOID fastForward(uint32_t id, OPCODE op){
         zinfo->core[id].lastUpdateCycles++;
 
         if (op == 271) {
-            //fprintf(trace, "start tx %lu", zinfo->tx_id[id]);
+            fprintf(trace, "start tx %lu", zinfo->tx_id[id]);
             //printf("start tx %lu\n", zinfo->tx_id[id]);
             zinfo->persistent[id]=true;
         }
         else if (op == 578) {
-            //fprintf(trace, "end tx %lu", zinfo->tx_id[id]);
-            //printf("end tx %lu\m", zinfo->tx_id[id]);
+            fprintf(trace, "end tx %lu", zinfo->tx_id[id]);
+            //printf("end tx %lu\n", zinfo->tx_id[id]);
             zinfo->persistent[id]=false; 
             zinfo->tx_id[id]++;
         }
@@ -581,8 +595,6 @@ VOID fastForward(uint32_t id, OPCODE op){
     //    info("id %d: AF %d", id, zinfo->FastForwardIns[id]);
     //} 
 }
-
-
 
 // Is called for every instruction and instruments reads and writes
 VOID Instruction(INS ins, VOID *v)
@@ -706,12 +718,14 @@ VOID Fini(INT32 code, VOID *v)
          
             uint64_t persist_w_evict_nvc = zinfo->persist_w_evict_nvc;
             uint64_t persist_w = zinfo->persist_w; 
+            uint64_t mem_access = zinfo->mem_access; 
         
             double nvc_and_dram_bandwidth_percentage = (double)((nvc_to_dram_write * DRAM_LATENCY) + (dram_to_nvc_write * NVC_WRITE_LATENCY)) / (double)(nvc_dram_max); 
             double nvc_to_dram_bandwidth_percentage = (double)(nvc_to_dram_write * DRAM_LATENCY) / (double)(nvc_dram_max); 
             double dram_to_nvc_bandwidth_percentage = (double)(dram_to_nvc_write * NVC_WRITE_LATENCY) / (double)(nvc_dram_max); 
             double nvc_to_nvm_bandwidth_percentage = (double)((nvc_to_nvm_write * NVM_WRITE_LATENCY)) /(double) (nvm_max);
 
+            printf("mem access %lu\n", mem_access);        
             printf("persist_w %lu\n", persist_w);
             printf("persist_w_evict_nvc %lu\n", persist_w_evict_nvc);
 
@@ -734,7 +748,7 @@ INT32 Usage()
 }
 
 /* ===================================================================== */
-/* ain                                                                  */
+/* main                                                                  */
 /* ===================================================================== */
 
 int main(int argc, char *argv[])
@@ -966,15 +980,11 @@ int main(int argc, char *argv[])
             break;
     }
 
-
-
     pid_t cur = getpid();
     char pid_s[15];
     sprintf(pid_s, "libsim_%d.out", cur);
 
     trace = fopen(pid_s, "w");
-
-
 
     INS_AddInstrumentFunction(Instruction, 0);
     PIN_AddFiniFunction(Fini, 0);

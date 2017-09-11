@@ -12,10 +12,9 @@ void hello()
 void main()
 {
 int i;
-
     for (i =0; i<10; i++) {
-      __asm__ ("lfence");
+//     __asm__ ("lfence");
         hello();
-      __asm__ ("sfence");
+//      __asm__ ("sfence");
     }
 }

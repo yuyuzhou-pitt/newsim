@@ -2,16 +2,12 @@
 #include <sys/prctl.h>
 #include <unistd.h>
 #include <stdio.h>
-#include "pin.H"
 #include <chrono>
 #include <numeric>
 #include <sstream>
 #include "galloc.h"
 #include "libsim.h"
 #include "log.h"
-
-
-
 
 uint64_t flush(uint32_t procId, uint64_t PersistTrax){
     //info("PB flush %lu", PersistTrax);
@@ -36,11 +32,12 @@ uint64_t flush(uint32_t procId, uint64_t PersistTrax){
              }
         } 
     }
-
+    //info("PB flush cycles cost: %lu", cycles);
     return cycles;
 }
 
 uint64_t overflow_flush(uint32_t procId, uint64_t PersistTrax){
+    info("overflow");
     int i;
     uint64_t cycles = 0;
     for (i = 0; i < PB_SIZE; i++) {
@@ -70,9 +67,9 @@ uint64_t insert_PB(uint32_t procId, uint64_t buffer_lineID, uint64_t epoch_id, C
         if (zinfo->pb[procId][i].lineAddr == lineAddr) buffer_lineID =i;
     }
 
-    if ((zinfo->pb[procId][buffer_lineID].tx_id != epoch_id) && (zinfo->pb[procId][buffer_lineID].tx_id != (uint64_t)(-1) )) { //buffer is full
+    if ((zinfo->pb[procId][buffer_lineID].tx_id != epoch_id)  && (zinfo->pb[procId][buffer_lineID].tx_id != (uint64_t)(-1) )) { //buffer is full
         info("Error buffeer is full, buffer_id %lu, epoch_id %lu, nexPer %lu", buffer_lineID, epoch_id, zinfo->nextPersistTrax[procId]);
-        cycles = overflow_flush(procId, epoch_id);
+        cycles += overflow_flush(procId, epoch_id);
     }
        if (zinfo->pb[procId][buffer_lineID].tx_id != epoch_id) // a new entry
            zinfo->nextAvailablePBLine[procId] = (zinfo->nextAvailablePBLine[procId] + 1) % PB_SIZE; 
@@ -82,8 +79,6 @@ uint64_t insert_PB(uint32_t procId, uint64_t buffer_lineID, uint64_t epoch_id, C
        zinfo->pb[procId][buffer_lineID].lineAddr = lineAddr;
     return cycles+1; 
 }
-
-
 
 /***********************l1 ************************************/
 
@@ -106,9 +101,12 @@ Address kiln_l1_reverse_lookup(uint32_t procId, const int32_t lineID){
 uint64_t kiln_l1_access(uint32_t procId, MemReq req){
      //info("l1 access"); 
      uint64_t cycles = req.cycle;
+     //info("Kiln_l1_start_cycles: %lu", cycles);
      if (req.persistent == true) {  // it's a persistent write
          if (req.epoch_id > zinfo->nextPersistTrax[procId]) { // new trax, flush previous trax
              cycles+=flush(procId, zinfo->nextPersistTrax[procId]);
+             req.cycle = cycles;
+             //info("Kiln_l1_after_flush_cycles: %lu", cycles);
              zinfo->nextPersistTrax[procId]++;              
          } else if (req.epoch_id < zinfo->nextPersistTrax[procId]) { // old data treated as non volatile
              req.epoch_id=-1; 
@@ -131,7 +129,7 @@ uint64_t kiln_l1_access(uint32_t procId, MemReq req){
 
          if (req.persistent == true) {  // it's a persistent write
              zinfo->l1cache[procId].tx_id[target_lineId]=req.epoch_id;
-             if ( req.pb_id == (uint64_t)(-1))
+             if ( req.pb_id == (uint64_t)(-1) )
                  zinfo->l1cache[procId].pb_line[target_lineId] = zinfo->nextAvailablePBLine[procId];
              else zinfo->l1cache[procId].pb_line[target_lineId] = req.pb_id;
              cycles+=insert_PB(procId, zinfo->l1cache[procId].pb_line[target_lineId],req.epoch_id, CL1, target_lineId, req.lineAddr);
@@ -141,7 +139,7 @@ uint64_t kiln_l1_access(uint32_t procId, MemReq req){
          }
 
          l1_postinsert(procId, req, target_lineId);    
-         cycles += zinfo->l1cache[procId].accLat - 1;
+         cycles += zinfo->l1cache[procId].accLat;
      } else { //hit 
          if (req.type == GETS) zinfo->pc.l1_hGETS[procId]++;
          else if (req.type == GETX) zinfo->pc.l1_hGETX[procId]++;
@@ -151,17 +149,17 @@ uint64_t kiln_l1_access(uint32_t procId, MemReq req){
              if ( req.pb_id == (uint64_t)(-1))
                  zinfo->l1cache[procId].pb_line[target_lineId] = zinfo->nextAvailablePBLine[procId];
              else zinfo->l1cache[procId].pb_line[target_lineId] = req.pb_id;
-             cycles+=insert_PB(procId, zinfo->l1cache[procId].pb_line[target_lineId],req.epoch_id, CL1, target_lineId, req.lineAddr);
+             cycles += insert_PB(procId, zinfo->l1cache[procId].pb_line[target_lineId],req.epoch_id, CL1, target_lineId, req.lineAddr);
          } else {
              zinfo->l1cache[procId].pb_line[target_lineId]=-1;
              zinfo->l1cache[procId].tx_id[target_lineId]=-1; 
          }
 
          l1_postinsert(procId, req, target_lineId);
-         if (req.type!=PUTS) cycles += zinfo->l1cache[procId].accLat - 1; 
+         if (req.type!=PUTS) cycles += zinfo->l1cache[procId].accLat; 
      }
+     //info("Kiln_l1_return_cycles: %lu", cycles);
      return cycles; 
-
 }
 
 uint32_t kiln_l1_preinsert(uint32_t procId, MemReq req){
@@ -170,7 +168,7 @@ uint32_t kiln_l1_preinsert(uint32_t procId, MemReq req){
     //fprintf(trace, "L1 preinsert %lu - %lu\n", start, end);
     uint32_t bestCand = start;
     uint64_t bestTS = zinfo->l1cache[procId].ts[start];
-    for (uint32_t i = start; i<end; i++) {
+    for (uint32_t i = start; i < end; i++) {
         if (zinfo->l1cache[procId].state[i] == I) {  //find an unused cacheline: 
             return i;
         }
@@ -187,7 +185,7 @@ void kiln_l1_postinsert(uint32_t procId, MemReq req, int32_t lineID){
     switch (req.type) {
          case GETS:
              zinfo->l1cache[procId].array[lineID]=req.lineAddr;
-             zinfo->l1cache[procId].state[lineID]=E; 
+             if (zinfo->l1cache[procId].state[lineID]!=M) zinfo->l1cache[procId].state[lineID]=E; 
              zinfo->l1cache[procId].ts[lineID]=zinfo->timestamp;
              atomic_add_timestamp();
              break;
@@ -216,6 +214,7 @@ void kiln_l1_postinsert(uint32_t procId, MemReq req, int32_t lineID){
 }
 
 uint64_t kiln_l1_evict(uint32_t procId, MemReq req, const int32_t lineID){
+    uint64_t cycles; 
     MemReq newreq; 
     newreq.lineAddr = zinfo->l1cache[procId].array[lineID]; 
     newreq.cycle = req.cycle; 
@@ -248,7 +247,9 @@ uint64_t kiln_l1_evict(uint32_t procId, MemReq req, const int32_t lineID){
         default: 
             return newreq.cycle; 
     }    
-    return l2_access(procId, newreq); 
+    cycles = l2_access(procId, newreq); 
+    zinfo->l1cache[procId].state[lineID] = I; 
+    return cycles; 
 }
 
 uint64_t kiln_l1_fetch(uint32_t procId, MemReq req){
@@ -304,7 +305,7 @@ uint64_t kiln_l2_access(uint32_t procId, MemReq req){
          }
 
          l2_postinsert(procId, req, target_lineId);    
-         cycles += zinfo->l2cache[procId].accLat - 1;
+         cycles += zinfo->l2cache[procId].accLat;
      } else { //hit
          if (req.type == GETS) zinfo->pc.l2_hGETS[procId]++;
          else if (req.type == GETX) zinfo->pc.l2_hGETX[procId]++;
@@ -321,7 +322,7 @@ uint64_t kiln_l2_access(uint32_t procId, MemReq req){
          }
 
          l2_postinsert(procId, req, target_lineId);
-         if (req.type != PUTS) cycles += zinfo->l2cache[procId].accLat - 1;  //clean write back hit does not need to wrtie
+         if (req.type != PUTS) cycles += zinfo->l2cache[procId].accLat;  //clean write back hit does not need to wrtie
      }
      return cycles; 
 }
@@ -348,7 +349,7 @@ void kiln_l2_postinsert(uint32_t procId, MemReq req, int32_t lineID){
     switch (req.type) {
          case GETS:
              zinfo->l2cache[procId].array[lineID]=req.lineAddr;
-             zinfo->l2cache[procId].state[lineID]=E; 
+             if (zinfo->l2cache[procId].state[lineID]!=M) zinfo->l2cache[procId].state[lineID]=E; 
              zinfo->l2cache[procId].ts[lineID]=zinfo->timestamp;
              atomic_add_timestamp();
              break;
@@ -377,6 +378,7 @@ void kiln_l2_postinsert(uint32_t procId, MemReq req, int32_t lineID){
 }
 
 uint64_t kiln_l2_evict(uint32_t procId, MemReq req, const int32_t lineID){
+    uint64_t cycles; 
     MemReq newreq; 
     newreq.lineAddr = zinfo->l2cache[procId].array[lineID]; 
     newreq.cycle = req.cycle;
@@ -391,8 +393,6 @@ uint64_t kiln_l2_evict(uint32_t procId, MemReq req, const int32_t lineID){
         newreq.epoch_id = zinfo->l2cache[procId].tx_id[lineID];
         newreq.pb_id = zinfo->l2cache[procId].pb_line[lineID];
     }
-
-
  
     switch (zinfo->l2cache[procId].state[lineID]) {
         case I: 
@@ -410,7 +410,9 @@ uint64_t kiln_l2_evict(uint32_t procId, MemReq req, const int32_t lineID){
         default: 
             return newreq.cycle; 
     }    
-    return nvc_access(procId, newreq); 
+    cycles = nvc_access(procId, newreq); 
+    zinfo->l2cache[procId].state[lineID] = I; 
+    return cycles; 
 }
 
 
@@ -466,16 +468,16 @@ uint64_t kiln_nvc_access(uint32_t procId, MemReq req){
          nvc_postinsert(procId, req, target_lineId);    
          switch (req.type) {
              case GETS:
-                 cycles += zinfo->nvc.write_accLat - 1;
+                 cycles += zinfo->nvc.write_accLat;
                  break;
              case GETX:
-                 cycles += zinfo->nvc.write_accLat - 1;
+                 cycles += zinfo->nvc.write_accLat;
                  break;
              case PUTS:
-                 cycles += zinfo->nvc.write_accLat - 1;
+                 cycles += zinfo->nvc.write_accLat;
                  break;
              case PUTX:
-                 cycles += zinfo->nvc.write_accLat - 1;
+                 cycles += zinfo->nvc.write_accLat;
                  break;
              default:
                  break;
@@ -498,16 +500,16 @@ uint64_t kiln_nvc_access(uint32_t procId, MemReq req){
          nvc_postinsert(procId, req, target_lineId);
          switch (req.type) {
              case GETS:
-                 cycles += zinfo->nvc.read_accLat - 1;
+                 cycles += zinfo->nvc.read_accLat;
                  break;
              case GETX:
-                 cycles += zinfo->nvc.read_accLat - 1;
+                 cycles += zinfo->nvc.read_accLat;
                  break;
              case PUTS:
-                 //cycles += zinfo->nvc.write_accLat - 1;
+                 //cycles += zinfo->nvc.write_accLat;
                  break;
              case PUTX:
-                 cycles += zinfo->nvc.write_accLat - 1;
+                 cycles += zinfo->nvc.write_accLat;
                  break;
              default:
                  break;
@@ -540,7 +542,7 @@ void kiln_nvc_postinsert(uint32_t procId, MemReq req, int32_t lineID){
     switch (req.type) {
          case GETS:
              zinfo->nvc.array[lineID]=req.lineAddr;
-             zinfo->nvc.state[lineID]=E; 
+             if (zinfo->nvc.state[lineID]!=M) zinfo->nvc.state[lineID]=E; 
              zinfo->nvc.ts[lineID]=zinfo->timestamp;
              atomic_add_timestamp();
              break;
@@ -569,6 +571,7 @@ void kiln_nvc_postinsert(uint32_t procId, MemReq req, int32_t lineID){
 }
 
 uint64_t kiln_nvc_evict(uint32_t procId, MemReq req, const int32_t lineID){
+    uint64_t cycles; 
     MemReq newreq; 
     newreq.lineAddr = zinfo->nvc.array[lineID]; 
     newreq.cycle = req.cycle; 
@@ -601,12 +604,17 @@ uint64_t kiln_nvc_evict(uint32_t procId, MemReq req, const int32_t lineID){
             return newreq.cycle; 
     }    
 
-    if (zinfo->nvc.tx_id[lineID] == (uint64_t)(-1)) 
-        return dram_access(procId, newreq); 
+    if (zinfo->nvc.tx_id[lineID] == (uint64_t)(-1)) {
+        cycles = dram_access(procId, newreq); 
+        zinfo->nvc.state[lineID] = I;
+        return cycles; 
+    }
     else {
         atomic_add_persist_w_evict_nvc();
         zinfo->nvc_to_nvm_write++;
-        return nvm_access(procId, newreq);
+        cycles = nvm_access(procId, newreq);
+        zinfo->nvc.state[lineID] = I;
+        return cycles; 
     } 
 }
 
@@ -660,7 +668,7 @@ uint64_t kiln_dram_access(uint32_t procId, MemReq req){
          }
 
          dram_postinsert(procId, req, target_lineId);    
-         cycles += zinfo->dram.accLat - 1;
+         cycles += zinfo->dram.accLat;
      } else { //hit
          if (req.type == GETS) zinfo->pc.dram_hGETS++;
          else if (req.type == GETX) zinfo->pc.dram_hGETX++;
@@ -677,7 +685,7 @@ uint64_t kiln_dram_access(uint32_t procId, MemReq req){
          }
 
          dram_postinsert(procId, req, target_lineId);
-         if (req.type!=PUTS) cycles += zinfo->dram.accLat - 1; 
+         if (req.type!=PUTS) cycles += zinfo->dram.accLat; 
      }
      futex_unlock(&zinfo->dram_lock);
      return cycles; 
@@ -706,7 +714,7 @@ void kiln_dram_postinsert(uint32_t procId, MemReq req, int32_t lineID){
     switch (req.type) {
          case GETS:
              zinfo->dram.array[lineID]=req.lineAddr;
-             zinfo->dram.state[lineID]=E; 
+             if (zinfo->dram.state[lineID] != M) zinfo->dram.state[lineID]=E; 
              zinfo->dram.ts[lineID]=zinfo->timestamp;
              atomic_add_timestamp();
              break;
@@ -735,6 +743,7 @@ void kiln_dram_postinsert(uint32_t procId, MemReq req, int32_t lineID){
 }
 
 uint64_t kiln_dram_evict(uint32_t procId, MemReq req, const int32_t lineID){
+    uint64_t cycles; 
     MemReq newreq; 
     newreq.lineAddr = zinfo->dram.array[lineID]; 
     newreq.cycle = req.cycle; 
@@ -754,7 +763,9 @@ uint64_t kiln_dram_evict(uint32_t procId, MemReq req, const int32_t lineID){
         default: 
             return newreq.cycle; 
     }    
-    return nvm_access(procId, newreq); 
+    cycles = nvm_access(procId, newreq); 
+    zinfo->dram.state[lineID]=I; 
+    return cycles; 
 }
 
 uint64_t kiln_dram_fetch(uint32_t procId, MemReq req){
@@ -770,20 +781,20 @@ uint64_t kiln_nvm_access(uint32_t procId, MemReq req){
 
      switch (req.type) {
          case GETS:
-             cycles += zinfo->nvm.read_accLat - 1;
+             cycles += zinfo->nvm.read_accLat;
              zinfo->pc.nvm_GETS++;
              break;
          case GETX:
-             cycles += zinfo->nvm.write_accLat - 1; 
+             cycles += zinfo->nvm.read_accLat; 
              zinfo->pc.nvm_GETX++;
              break;
          case PUTS: 
-             //cycles += zinfo->nvm.write_accLat - 1;
+             //cycles += zinfo->nvm.write_accLat;
              zinfo->pc.nvm_PUTS++;
              break; 
          case PUTX:
              zinfo->pc.nvm_PUTX++;
-             cycles += zinfo->nvm.write_accLat - 1; 
+             cycles += zinfo->nvm.write_accLat; 
              break; 
          default:
              break;
